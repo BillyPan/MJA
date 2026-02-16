@@ -46,20 +46,34 @@ export interface GameState {
   playerDiscards: Tile[];
   cpuDiscards: Tile[];
   currentTurn: 'player' | 'cpu';
-  playerEnergy: number;
+  playerEnergy: number; // For arcade skills
+  playerScore: number; // Actual Mahjong points
+  cpuScore: number;
   phase: GamePhase;
   selectedInstructor: Instructor | null;
   message: string;
   winningHand?: WinningResult;
   isPlayerReach: boolean;
+  isCpuReach: boolean;
   lastDiscardTile: Tile | null;
   pendingCall: CallActions | null;
+  doraIndicator: Tile | null;
+  isPlayerFuriten: boolean;
+}
+
+export interface YakuResult {
+  name: string;
+  fan: number;
 }
 
 export interface WinningResult {
   winner: 'player' | 'cpu';
-  yaku: string[];
+  yaku: YakuResult[];
+  doraCount: number;
+  fan: number;
+  fu: number;
   points: number;
   hand: Tile[];
   melds: Meld[];
+  isTsumo: boolean;
 }

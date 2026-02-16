@@ -48,7 +48,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
           </div>
         </div>
 
-        {/* Central Info: Message & Dora (Now side-by-side) */}
+        {/* Central Info: Message & Dora */}
         <div className="flex items-center gap-6">
           <div className="bg-black/80 px-8 py-3 rounded-lg border-2 border-yellow-500/60 shadow-lg min-w-[300px] text-center">
             <p className="text-yellow-400 text-lg font-black italic tracking-wide animate-pulse">「 {state.message} 」</p>
@@ -102,13 +102,15 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
       </div>
 
       <div className="h-[280px] flex-shrink-0 flex flex-col items-center justify-end pb-6 bg-gradient-to-t from-black/95 to-transparent border-t border-white/5">
-        <div className="flex gap-4 mb-4">
+        
+        {/* Arcade Actions - Now right-aligned for easier mouse access */}
+        <div className="w-full flex justify-end px-16 gap-4 mb-4">
           {state.pendingCall?.ron && <button onClick={() => onCall('ron')} className="bg-red-700 text-white px-10 py-2 font-black text-2xl border-b-6 border-red-900 animate-bounce shadow-2xl">榮和 RON</button>}
           {canPlayerTsumo && state.currentTurn === 'player' && <button onClick={onTsumo} className="bg-yellow-500 text-black px-10 py-2 font-black text-2xl border-b-6 border-yellow-800 animate-bounce shadow-2xl">自摸 TSUMO</button>}
           {state.pendingCall?.pon && !state.isPlayerReach && <button onClick={() => onCall('pon')} className="bg-blue-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-blue-800">碰 PON</button>}
           {state.pendingCall?.chi && !state.isPlayerReach && <button onClick={() => onCall('chi')} className="bg-green-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-green-800">吃 CHI</button>}
-          {state.pendingCall && <button onClick={() => onCall('PASS')} className="bg-zinc-700 text-white px-6 py-1.5 font-black text-xl border-b-4 border-zinc-900">過 PASS</button>}
           
+          {/* Arcade Energy Skills */}
           {!state.isPlayerReach && state.currentTurn === 'player' && (
             <button 
               onClick={() => onUseSkill('REACH')} 
@@ -127,8 +129,12 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
               胡牌 (90 EP)
             </button>
           )}
+
+          {/* PASS is now on the far right of the group */}
+          {state.pendingCall && <button onClick={() => onCall('PASS')} className="bg-zinc-700 text-white px-6 py-1.5 font-black text-xl border-b-4 border-zinc-900">過 PASS</button>}
         </div>
 
+        {/* Energy Bar */}
         <div className="w-[70%] max-w-3xl h-5 bg-zinc-900 rounded-full border-2 border-white/20 mb-4 overflow-hidden relative shadow-[0_0_15px_rgba(255,255,255,0.1)]">
           <div 
             className="h-full bg-gradient-to-r from-red-600 via-yellow-500 to-green-500 transition-all duration-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]"
@@ -139,6 +145,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
           </div>
         </div>
 
+        {/* Player Hand */}
         <div className="flex items-end gap-2 px-10">
           {state.playerHand.map((tile, index) => {
             const isDrawnTile = index === state.playerHand.length - 1 && (state.playerHand.length + state.playerMelds.length * 3) === 14;

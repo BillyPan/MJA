@@ -188,8 +188,8 @@ const App: React.FC = () => {
       }
     }
 
-    // 都沒發生則輪到 CPU 摸牌
-    setTimeout(cpuTurn, 1000);
+    // 都沒發生則輪到 CPU 摸牌，改用 cpuDraw 啟動摸牌與思考流程
+    setTimeout(cpuDraw, 1000);
   };
 
   const cpuCall = (type: 'pon' | 'chi', tile: Tile) => {
@@ -220,27 +220,38 @@ const App: React.FC = () => {
         currentTurn: 'cpu'
       };
     });
-    // CPU 鳴牌後必須進行棄牌
+    // CPU 鳴牌後必須進行棄牌 (維持原邏輯，這裡不需要長時間思考)
     setTimeout(cpuDiscard, 1000);
   };
 
-  const cpuTurn = () => {
+  // NEW: CPU 摸牌階段 (不進行整理，模擬思考)
+  const cpuDraw = () => {
     setGameState(prev => {
       if (prev.deck.length === 0) return { ...prev, phase: GamePhase.RESULT, message: "流局！" };
       playSound('draw');
       const newDeck = [...prev.deck];
       const drawn = newDeck.pop()!;
-      // CPU 手牌包含剛摸到的第14張
+      // CPU 手牌包含剛摸到的第14張，注意：此處故意不排序 (sortHand)，讓最後一張顯示在右側
       const fullHand = [...prev.cpuHand, drawn];
       
-      // 檢查 CPU 是否自摸
+      // 模擬思考時間，1.0秒後執行決策
+      setTimeout(cpuDecide, 1000);
+
+      return { ...prev, cpuHand: fullHand, deck: newDeck, currentTurn: 'cpu' };
+    });
+  };
+
+  // NEW: CPU 決策階段 (判斷自摸、立直、棄牌)
+  const cpuDecide = () => {
+    setGameState(prev => {
+      // 此時手牌最後一張為剛摸進的
+      const fullHand = [...prev.cpuHand];
+
+      // 1. 檢查 CPU 是否自摸
       const winResult = calculateFinalScore(fullHand, prev.cpuMelds, true, prev.isCpuReach, prev.doraIndicator, true);
       if (winResult) {
-        // 移除此處的 playSound('win')
         return {
           ...prev,
-          cpuHand: fullHand,
-          // phase 保持 PLAYING
           cpuScore: prev.cpuScore + winResult.points,
           playerScore: prev.playerScore - winResult.points,
           winningHand: { ...winResult, winner: 'cpu' },
@@ -249,34 +260,82 @@ const App: React.FC = () => {
         };
       }
 
-      // 檢查 CPU 是否可以立直
-      if (!prev.isCpuReach && prev.cpuMelds.length === 0 && calculateShanten(fullHand, []) === 0) {
-        if (Math.random() > 0.4) {
-          return { ...prev, isCpuReach: true, cpuHand: fullHand, deck: newDeck };
-        }
+      // 2. 檢查 CPU 是否可以立直 (與是否決定立直)
+      // 修正：必須先棄牌後才能立直，這裡預判打掉某張牌後是否聽牌
+      let isNowReach = prev.isCpuReach;
+      if (!isNowReach && prev.cpuMelds.length === 0) {
+          // 檢查手牌中是否有任何一張牌打出後，向聽數變為 0 (聽牌)
+          // 為了準確，我們需要檢查打出後的向聽數
+          // 但在 cpuDecide 階段，我們還沒決定打哪張。
+          // 這裡的邏輯是：如果我「現在」的狀態 (14張) 打出一張後能聽牌 (Shanten 0)，則考慮宣告立直
+          // 我們先預計算最佳棄牌
+          const bestDiscardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
+          const tempHand = fullHand.filter((_, i) => i !== bestDiscardIdx);
+          
+          if (calculateShanten(tempHand, prev.cpuMelds) === 0) {
+             // 確保真的有聽牌 (聽牌張數 > 0)
+             const waiters = getWaitingTiles(tempHand, prev.cpuMelds);
+             if (waiters.length > 0 && Math.random() > 0.4) {
+                 isNowReach = true;
+             }
+          }
       }
 
-      return { ...prev, cpuHand: fullHand, deck: newDeck };
-    });
+      // 3. 執行棄牌計算
+      let discardIdx = 0;
+      if (isNowReach) {
+        // 如果是這回合立直或之前已立直，通常模切 (打掉摸進來的那張，即最後一張)
+        // 為了簡單起見，立直狀態下固定打出摸進的牌
+        discardIdx = fullHand.length - 1; 
+      } else {
+        discardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
+      }
 
-    setTimeout(cpuDiscard, 1000);
+      playSound('discard');
+      const newHand = [...fullHand];
+      const discarded = newHand.splice(discardIdx, 1)[0];
+      const updatedDiscards = [...prev.cpuDiscards, discarded];
+
+      // 4. 判定玩家是否可以鳴牌或榮和
+      const canRonRes = calculateFinalScore([...prev.playerHand, discarded], prev.playerMelds, false, prev.isPlayerReach, prev.doraIndicator);
+      const calls: CallActions = {
+        ron: !!canRonRes && !prev.isPlayerFuriten,
+        pon: canPon(prev.playerHand, discarded) && !prev.isPlayerReach,
+        chi: canChi(prev.playerHand, discarded) && !prev.isPlayerReach,
+        kan: canKan(prev.playerHand, discarded) && !prev.isPlayerReach
+      };
+
+      const hasCall = Object.values(calls).some(v => v);
+      if (!hasCall) setTimeout(playerDraw, 800);
+
+      // 如果這回合宣告立直，更新訊息
+      const msg = isNowReach && !prev.isCpuReach ? `${prev.selectedInstructor?.name}：立直！` : (Math.random() < 0.3 ? getInstructorDialogue() : prev.message);
+
+      return {
+        ...prev,
+        cpuHand: sortHand(newHand), // 棄牌後整理手牌
+        cpuDiscards: updatedDiscards,
+        lastDiscardTile: discarded,
+        pendingCall: hasCall ? calls : null,
+        currentTurn: 'player',
+        isCpuReach: isNowReach,
+        message: msg
+      };
+    });
   };
 
+  // 舊的 cpuDiscard 函式保留給 cpuCall 使用 (鳴牌後的棄牌不需要自摸判斷)
   const cpuDiscard = () => {
     setGameState(prev => {
       let discardIdx = 0;
-      if (prev.isCpuReach) {
-        discardIdx = prev.cpuHand.length - 1; // 立直後固定摸打
-      } else {
-        discardIdx = getBestDiscard(prev.cpuHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
-      }
+      // 鳴牌後不能立直，且鳴牌當下一定是自己的回合
+      discardIdx = getBestDiscard(prev.cpuHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
 
       playSound('discard');
       const newHand = [...prev.cpuHand];
       const discarded = newHand.splice(discardIdx, 1)[0];
       const updatedDiscards = [...prev.cpuDiscards, discarded];
 
-      // 判定玩家是否可以鳴牌或榮和
       const canRonRes = calculateFinalScore([...prev.playerHand, discarded], prev.playerMelds, false, prev.isPlayerReach, prev.doraIndicator);
       const calls: CallActions = {
         ron: !!canRonRes && !prev.isPlayerFuriten,
@@ -494,6 +553,7 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-black overflow-hidden serif-font">
+      {/* ... (rest of the render remains same) */}
       {/* 胡牌特效層 */}
       {gameState.isWinAnimation && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 pointer-events-none">
@@ -611,8 +671,25 @@ const App: React.FC = () => {
             {gameState.winningHand ? (gameState.winningHand.winner === 'player' ? '和了' : '被胡牌') : '流局'}
           </h2>
 
-          <div className="flex gap-2 mb-10 overflow-x-auto max-w-full bg-white/5 p-6 rounded-xl border border-white/10">
-            {gameState.winningHand?.hand.map(t => <MahjongTile key={t.id} tile={t} size="md" className="pointer-events-none" />) || "流局"}
+          {/* New Result Hand Display: Shows all 14 tiles (Hand + Melds) sorted and grouped */}
+          <div className="flex justify-center items-end gap-2 mb-10 overflow-x-auto max-w-full bg-white/5 p-6 rounded-xl border border-white/10 flex-wrap">
+            <div className="flex gap-1">
+                {/* Standing Tiles (Sorted) */}
+                {sortHand(gameState.winningHand?.hand || []).map((t, i) => (
+                    <MahjongTile key={i} tile={t} size="md" className="pointer-events-none" />
+                ))}
+            </div>
+            {/* Melds (If any) */}
+            {gameState.winningHand?.melds && gameState.winningHand.melds.length > 0 && (
+                <div className="flex gap-4 ml-6 pl-6 border-l-2 border-white/10">
+                    {gameState.winningHand.melds.map((meld, i) => (
+                        <div key={i} className="flex gap-0.5">
+                            {meld.tiles.map((t, j) => <MahjongTile key={j} tile={t} size="md" className="pointer-events-none opacity-90" />)}
+                        </div>
+                    ))}
+                </div>
+            )}
+            {!gameState.winningHand && <span className="text-4xl text-white/50 font-bold">流局</span>}
           </div>
 
           <div className="text-center mb-10 min-h-[120px]">

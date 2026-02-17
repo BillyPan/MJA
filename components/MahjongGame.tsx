@@ -90,25 +90,42 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
             <div className="text-white text-lg font-bold font-mono tracking-tighter">點數: {state.cpuScore}</div>
           </div>
           {/* CPU Hand */}
-          {/* 加入 w-[360px] 寬度限制當顯示手牌時，因為 scale 不會影響佈局空間，導致原始寬度擠壓對話框 */}
-          <div className={`flex gap-0.5 ml-2 self-center origin-left transition-all duration-500 ${shouldRevealCpuHand ? 'scale-[0.6] w-[360px]' : 'scale-90'}`}>
+          {/* 使用 w-[540px] 並配合 scale-[0.8] 讓牌面清晰且填滿空間 */}
+          <div className={`flex gap-0.5 ml-2 self-center origin-left transition-all duration-500 ${shouldRevealCpuHand ? 'scale-[0.8] w-[540px]' : 'scale-90'}`}>
              {shouldRevealCpuHand ? (
                 // Reveal winning hand tiles OR Cheat enabled tiles
-                sortHand(isCpuWinReveal && state.winningHand ? state.winningHand.hand : state.cpuHand).map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)
+                // 注意：這裡如果不是胡牌展示，直接使用 state.cpuHand 而不排序，以保留摸牌時的「未整理」狀態
+                (isCpuWinReveal && state.winningHand ? sortHand(state.winningHand.hand) : state.cpuHand).map((t, i, arr) => {
+                  // 如果是最後一張且手牌是14張(模3餘2)，加上左邊距模擬剛摸牌
+                  const isLastDrawn = !isCpuWinReveal && i === arr.length - 1 && arr.length % 3 === 2;
+                  return <MahjongTile key={i} tile={t} size="xs" className={isLastDrawn ? "ml-4" : ""} />;
+                })
              ) : (
                 // Hidden hand
-                state.cpuHand.map((_, i) => <div key={i} className="w-6 h-9 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400" />)
+                state.cpuHand.map((_, i) => {
+                  // 如果是 CPU 手牌，且當前手牌張數為 14 (3n+2)，最後一張牌(剛剛摸到的)加入左側間距以模擬"思考/摸牌"狀態
+                  const isLastDrawn = i === state.cpuHand.length - 1 && state.cpuHand.length % 3 === 2;
+                  return (
+                    <div 
+                      key={i} 
+                      className={`w-6 h-9 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400 ${isLastDrawn ? 'ml-4' : ''}`} 
+                    />
+                  );
+                })
              )}
           </div>
         </div>
 
-        {/* Center: Message & Dora */}
-        <div className="flex items-center gap-6 flex-grow px-8 min-w-0">
-          {/* Message Box: Flex-grow to fill available space */}
-          <div className="bg-black/80 px-8 py-3 rounded-lg border-2 border-yellow-500/60 shadow-lg flex-grow w-full overflow-hidden text-center relative">
+        {/* Center: Message ONLY - Flex grow to take available space */}
+        <div className="flex items-center justify-center flex-grow px-8 min-w-0 z-10">
+          <div className="bg-black/80 px-8 py-3 rounded-lg border-2 border-yellow-500/60 shadow-lg w-full overflow-hidden text-center relative mx-4 transition-all">
             <p className="text-yellow-400 text-xl font-black italic animate-pulse whitespace-nowrap overflow-hidden text-ellipsis px-2">「 {displayMessage} 」</p>
           </div>
-          {/* Compact Dora */}
+        </div>
+
+        {/* Right: Dora & Player Score */}
+        <div className="flex items-center gap-6 flex-shrink-0">
+          {/* Compact Dora - Moved here for better layout balance */}
           <div className="flex flex-col items-center justify-center bg-red-950/40 px-3 py-1 rounded border border-red-500/30 flex-shrink-0">
             <div className="flex items-center gap-1 mb-1">
               <span className="text-red-500 font-black text-[10px] italic uppercase opacity-80">懸賞</span>
@@ -116,14 +133,13 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
             </div>
             {state.doraIndicator && <MahjongTile tile={state.doraIndicator} size="xs" className="scale-90 origin-top" />}
           </div>
-        </div>
 
-        {/* Right: Player Score */}
-        <div className="flex flex-col items-end min-w-[140px] flex-shrink-0">
-           <div className="text-yellow-500 text-xs font-black tracking-widest mb-1 opacity-80">玩家點數</div>
-           <div className="text-white text-4xl font-black font-mono tracking-tighter leading-none shadow-black drop-shadow-md">
-             {state.playerScore}
-           </div>
+          <div className="flex flex-col items-end min-w-[140px] flex-shrink-0">
+             <div className="text-yellow-500 text-xs font-black tracking-widest mb-1 opacity-80">玩家點數</div>
+             <div className="text-white text-4xl font-black font-mono tracking-tighter leading-none shadow-black drop-shadow-md">
+               {state.playerScore}
+             </div>
+          </div>
         </div>
       </div>
 

@@ -2,8 +2,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
-// Removed checkTenpai as it is not exported from mahjongEngine and not used in this file. 
-// Hand readiness is determined using getWaitingTiles elsewhere.
 import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard } from './services/mahjongEngine';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
@@ -99,7 +97,7 @@ const App: React.FC = () => {
       const newHand = [...prev.playerHand, drawn];
       
       const kanTile = checkOwnTurnKan(newHand, prev.playerMelds);
-      const canTsumo = checkWin(newHand, prev.playerMelds);
+      const canTsumoRes = calculateFinalScore(newHand, prev.playerMelds, true, prev.isPlayerReach, prev.doraIndicator);
       
       const calls: CallActions = { 
         ron: false, 
@@ -112,34 +110,28 @@ const App: React.FC = () => {
         ...prev,
         deck: newDeck,
         playerHand: newHand,
-        playerEnergy: Math.min(100, prev.playerEnergy + 5), // 摸牌回充 5 EP
+        playerEnergy: Math.min(100, prev.playerEnergy + 5),
         currentTurn: 'player',
         pendingCall: calls.kan ? calls : null,
-        lastDiscardTile: kanTile,
-        message: canTsumo ? "可以自摸囉！" : prev.message
+        lastDiscardTile: kanTile, // 儲存可能的槓牌目標
+        message: canTsumoRes ? "可以自摸囉！" : prev.message
       };
     });
   };
 
   const handlePlayerDiscard = (tileId: string) => {
     setGameState(prev => {
-      const totalTiles = prev.playerHand.length + prev.playerMelds.length * 3;
-      if (prev.currentTurn !== 'player' || prev.phase !== GamePhase.PLAYING || prev.pendingCall || totalTiles !== 14) {
-        return prev;
-      }
-
-      const tileIndex = prev.playerHand.findIndex(t => t.id === tileId);
-      if (tileIndex === -1) return prev;
+      if (prev.currentTurn !== 'player' || prev.phase !== GamePhase.PLAYING || prev.pendingCall) return prev;
+      const tileIdx = prev.playerHand.findIndex(t => t.id === tileId);
+      if (tileIdx === -1) return prev;
 
       playSound('discard');
       const newHand = [...prev.playerHand];
-      const discarded = newHand.splice(tileIndex, 1)[0];
+      const discarded = newHand.splice(tileIdx, 1)[0];
       const updatedDiscards = [...prev.playerDiscards, discarded];
       
       let reachStatus = prev.isPlayerReach;
-      if (isPendingReach && getWaitingTiles(newHand, prev.playerMelds).length > 0) {
-        reachStatus = true;
-      }
+      if (isPendingReach && getWaitingTiles(newHand, prev.playerMelds).length > 0) reachStatus = true;
       setIsPendingReach(false);
 
       const waiting = getWaitingTiles(newHand, prev.playerMelds);
@@ -197,23 +189,22 @@ const App: React.FC = () => {
         };
       }
 
-      const discardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1);
+      const discardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.id || 1, prev.playerDiscards, prev.isPlayerReach);
       playSound('discard');
       const newHand = [...fullHand];
       const discarded = newHand.splice(discardIdx, 1)[0];
 
-      const canRon = checkWin([...prev.playerHand, discarded], prev.playerMelds) && !prev.isPlayerFuriten;
+      const canRonRes = calculateFinalScore([...prev.playerHand, discarded], prev.playerMelds, false, prev.isPlayerReach, prev.doraIndicator);
+      
       const calls: CallActions = {
-        ron: canRon,
+        ron: !!canRonRes && !prev.isPlayerFuriten,
         pon: canPon(prev.playerHand, discarded) && !prev.isPlayerReach,
         chi: canChi(prev.playerHand, discarded) && !prev.isPlayerReach,
         kan: canKan(prev.playerHand, discarded) && !prev.isPlayerReach
       };
 
-      const hasAnyCall = Object.values(calls).some(v => v);
-      if (!hasAnyCall) {
-        setTimeout(() => playerDraw(), 1000);
-      }
+      const hasCall = Object.values(calls).some(v => v);
+      if (!hasCall) setTimeout(() => playerDraw(), 1000);
 
       return {
         ...prev,
@@ -221,7 +212,7 @@ const App: React.FC = () => {
         cpuHand: sortHand(newHand),
         cpuDiscards: [...prev.cpuDiscards, discarded],
         lastDiscardTile: discarded,
-        pendingCall: hasAnyCall ? calls : null,
+        pendingCall: hasCall ? calls : null,
         currentTurn: 'cpu',
       };
     });
@@ -230,34 +221,21 @@ const App: React.FC = () => {
   const handleCall = (action: keyof CallActions | 'PASS') => {
     if (action === 'PASS') {
       setGameState(prev => ({ ...prev, pendingCall: null }));
-      if (gameState.currentTurn === 'cpu') {
-        playerDraw();
-      }
+      if (gameState.currentTurn === 'cpu') playerDraw();
       return;
     }
 
     const tile = gameState.lastDiscardTile!;
-    
+
     if (action === 'ron') {
-      let finalHand: Tile[] = [];
-      let isTsumo = false;
-
-      if (gameState.playerHand.length + gameState.playerMelds.length * 3 === 14) {
-        finalHand = [...gameState.playerHand];
-        isTsumo = true;
-      } else {
-        finalHand = [...gameState.playerHand, tile];
-        isTsumo = false;
-      }
-
+      const isTsumo = gameState.playerHand.length === 14;
+      const finalHand = isTsumo ? [...gameState.playerHand] : [...gameState.playerHand, tile];
       const result = calculateFinalScore(finalHand, gameState.playerMelds, isTsumo, gameState.isPlayerReach, gameState.doraIndicator);
       
       if (result) {
         playSound('win');
         const cpuNewScore = gameState.cpuScore - result.points;
-        if (gameState.selectedInstructor && cpuNewScore <= 0) {
-          saveProgress(gameState.selectedInstructor.id);
-        }
+        if (gameState.selectedInstructor && cpuNewScore <= 0) saveProgress(gameState.selectedInstructor.id);
         setGameState(prev => ({
           ...prev,
           phase: GamePhase.RESULT,
@@ -266,7 +244,38 @@ const App: React.FC = () => {
           winningHand: { ...result, winner: 'player' },
           message: isTsumo ? "自摸！和牌！" : "榮和！和牌！"
         }));
+        return;
+      } else {
+        // 如果判定失敗，不要卡死，清除 pending 並繼續
+        setGameState(prev => ({ ...prev, pendingCall: null, message: "胡牌條件不足..." }));
+        if (gameState.currentTurn === 'cpu') playerDraw();
+        return;
       }
+    }
+
+    if (action === 'kan') {
+      playSound('call');
+      setGameState(prev => {
+        let newHand = [...prev.playerHand];
+        let newMelds = [...prev.playerMelds];
+        const matchingInHand = newHand.filter(t => t.type === tile.type && t.value === tile.value);
+
+        if (matchingInHand.length === 4) { // 暗槓
+          newHand = newHand.filter(t => !matchingInHand.includes(t));
+          newMelds.push({ type: 'kan', tiles: matchingInHand });
+        } else if (matchingInHand.length === 3) { // 大明槓
+          newHand = newHand.filter(t => !matchingInHand.includes(t));
+          newMelds.push({ type: 'kan', tiles: [...matchingInHand, tile] });
+        } else { // 加槓
+          const ponIdx = newMelds.findIndex(m => m.type === 'pon' && m.tiles[0].type === tile.type && m.tiles[0].value === tile.value);
+          if (ponIdx !== -1) {
+            newMelds[ponIdx] = { type: 'kan', tiles: [...newMelds[ponIdx].tiles, tile] };
+            newHand = newHand.filter(t => t.id !== tile.id);
+          }
+        }
+        setTimeout(() => playerDraw(), 500); // 槓完後嶺上補牌
+        return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, currentTurn: 'player', message: "槓！嶺上補牌！" };
+      });
       return;
     }
 
@@ -274,13 +283,10 @@ const App: React.FC = () => {
     setGameState(prev => {
       let newHand = [...prev.playerHand];
       let newMelds = [...prev.playerMelds];
-      let meldTiles: Tile[] = [];
-
       if (action === 'pon') {
-        const matching = newHand.filter(t => t.type === tile.type && t.value === tile.value).slice(0, 2);
-        newHand = newHand.filter(t => !matching.includes(t));
-        meldTiles = [...matching, tile];
-        newMelds.push({ type: 'pon', tiles: meldTiles });
+        const matches = newHand.filter(t => t.type === tile.type && t.value === tile.value).slice(0, 2);
+        newHand = newHand.filter(t => !matches.includes(t));
+        newMelds.push({ type: 'pon', tiles: [...matches, tile] });
       } else if (action === 'chi') {
         const v = tile.value, t = tile.type;
         const find = (val: number) => newHand.find(x => x.type === t && x.value === val);
@@ -289,44 +295,9 @@ const App: React.FC = () => {
         else if (find(v-2) && find(v-1)) pair = [find(v-2)!, find(v-1)!];
         else if (find(v+1) && find(v+2)) pair = [find(v+1)!, find(v+2)!];
         newHand = newHand.filter(t => !pair.includes(t));
-        meldTiles = [...pair, tile];
-        newMelds.push({ type: 'chi', tiles: meldTiles });
-      } else if (action === 'kan') {
-        const matchingInHand = newHand.filter(t => t.type === tile.type && t.value === tile.value);
-        if (matchingInHand.length === 4) { // 暗槓
-          newHand = newHand.filter(t => !matchingInHand.includes(t));
-          meldTiles = matchingInHand;
-          newMelds.push({ type: 'kan', tiles: meldTiles });
-        } else if (matchingInHand.length === 3) { // 大明槓
-          newHand = newHand.filter(t => !matchingInHand.includes(t));
-          meldTiles = [...matchingInHand, tile];
-          newMelds.push({ type: 'kan', tiles: meldTiles });
-        } else { // 加槓
-          const ponMeldIdx = newMelds.findIndex(m => m.type === 'pon' && m.tiles[0].type === tile.type && m.tiles[0].value === tile.value);
-          if (ponMeldIdx !== -1) {
-            newMelds[ponMeldIdx] = { type: 'kan', tiles: [...newMelds[ponMeldIdx].tiles, tile] };
-            newHand = newHand.filter(t => t.id !== tile.id);
-          }
-        }
-        setTimeout(() => playerDraw(), 500);
-        return {
-          ...prev,
-          playerHand: sortHand(newHand),
-          playerMelds: newMelds,
-          pendingCall: null,
-          currentTurn: 'player',
-          message: "槓！嶺上補牌！"
-        };
+        newMelds.push({ type: 'chi', tiles: [...pair, tile] });
       }
-
-      return {
-        ...prev,
-        playerHand: sortHand(newHand),
-        playerMelds: newMelds,
-        pendingCall: null,
-        currentTurn: 'player',
-        message: action.toUpperCase() + "!"
-      };
+      return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, currentTurn: 'player' };
     });
   };
 
@@ -337,23 +308,13 @@ const App: React.FC = () => {
       setGameState(prev => ({ ...prev, playerEnergy: prev.playerEnergy - 20, message: "宣告立直！" }));
     } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 90) {
       playSound('skill');
-      let finalHand: Tile[] = [];
-      const currentHandSize = gameState.playerHand.length + gameState.playerMelds.length * 3;
+      const waiters = getWaitingTiles(gameState.playerHand, gameState.playerMelds);
+      // 技能胡牌：如果是聽牌狀態，必殺自摸；如果沒聽牌，強行隨機選一張來胡（街機作弊風格）
+      const t = waiters.length > 0 ? waiters[0] : "m1"; 
+      const winTile = { id: 'skill-hu', type: t[0] as any, value: parseInt(t.slice(1)) };
+      const res = calculateFinalScore([...gameState.playerHand, winTile], gameState.playerMelds, true, gameState.isPlayerReach, gameState.doraIndicator, false, true);
       
-      if (currentHandSize === 14) {
-        if (checkWin(gameState.playerHand, gameState.playerMelds)) {
-          finalHand = [...gameState.playerHand];
-        } else {
-          const winTile = gameState.deck.find(d => checkWin([...gameState.playerHand.slice(0, -1), d], gameState.playerMelds));
-          if (winTile) finalHand = sortHand([...gameState.playerHand.slice(0, -1), winTile]);
-        }
-      } else if (currentHandSize === 13) {
-        const winTile = gameState.deck.find(d => checkWin([...gameState.playerHand, d], gameState.playerMelds));
-        if (winTile) finalHand = sortHand([...gameState.playerHand, winTile]);
-      }
-
-      if (finalHand.length === 14) {
-        const res = calculateFinalScore(finalHand, gameState.playerMelds, true, gameState.isPlayerReach, gameState.doraIndicator)!;
+      if (res) {
         setGameState(prev => ({
           ...prev,
           playerEnergy: prev.playerEnergy - 90,
@@ -367,40 +328,41 @@ const App: React.FC = () => {
     } else if (skillType === 'EXCHANGE' && gameState.playerEnergy >= 30) {
       playSound('skill');
       setGameState(prev => {
-        const lastTile = prev.playerHand[prev.playerHand.length - 1];
-        let newDeck = [lastTile, ...prev.deck];
-        let drawn: Tile | undefined;
-        let skillMessage = "換牌術發動！";
+        let newDeck = [...prev.deck];
+        let drawn: Tile;
+        let msg = "換牌術發動！";
 
-        // 立直後的特殊換牌邏輯 (70% 成功率)
-        if (prev.isPlayerReach && Math.random() < 0.7) {
-          const hand13 = prev.playerHand.slice(0, -1);
-          const waiters = getWaitingTiles(hand13, prev.playerMelds);
-          
-          if (waiters.length > 0) {
-            // 在牌庫中尋找可以胡的牌
-            const waiterIndex = newDeck.findIndex(d => waiters.includes(`${d.type}${d.value}`));
-            if (waiterIndex !== -1) {
-              drawn = newDeck.splice(waiterIndex, 1)[0];
-              // 重新打亂剩下的牌庫
-              newDeck = newDeck.sort(() => Math.random() - 0.5);
-              skillMessage = "必殺換牌！聽牌機率上升！";
-            }
+        const current13 = prev.playerHand.length === 14 ? prev.playerHand.slice(0, -1) : prev.playerHand;
+        const waiters = getWaitingTiles(current13, prev.playerMelds);
+        
+        // 立直後 70% 機率直接抽到聽牌
+        if (prev.isPlayerReach && waiters.length > 0 && Math.random() < 0.70) {
+          const waiterIdx = newDeck.findIndex(t => waiters.includes(`${t.type}${t.value}`));
+          if (waiterIdx !== -1) {
+            drawn = newDeck.splice(waiterIdx, 1)[0];
+            msg = "必殺換牌！一發入魂！";
+          } else {
+            newDeck = newDeck.sort(() => Math.random() - 0.5);
+            drawn = newDeck.pop()!;
           }
-        }
-
-        // 如果不是立直或機率沒中，或牌庫沒牌了，則正常隨機抽
-        if (!drawn) {
+        } else {
           newDeck = newDeck.sort(() => Math.random() - 0.5);
           drawn = newDeck.pop()!;
         }
 
-        return {
-          ...prev,
-          playerHand: [...prev.playerHand.slice(0, -1), drawn],
-          deck: newDeck,
-          playerEnergy: prev.playerEnergy - 30,
-          message: skillMessage
+        const lastIdx = prev.playerHand.length - 1;
+        const oldTile = prev.playerHand[lastIdx];
+        newDeck.push(oldTile); // 舊牌回庫
+        
+        const newHand = [...prev.playerHand];
+        newHand[lastIdx] = drawn;
+
+        return { 
+          ...prev, 
+          playerHand: sortHand(newHand), 
+          deck: newDeck, 
+          playerEnergy: prev.playerEnergy - 30, 
+          message: msg 
         };
       });
     }
@@ -411,10 +373,7 @@ const App: React.FC = () => {
       setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }));
       return;
     }
-
-    if (gameState.cpuScore <= 0) {
-      setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }));
-    } else if (gameState.playerScore <= 0) {
+    if (gameState.cpuScore <= 0 || gameState.playerScore <= 0) {
       setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT, playerScore: 25000, cpuScore: 25000 }));
     } else {
       startNewRound(gameState.selectedInstructor, gameState.playerScore, gameState.cpuScore, gameState.playerEnergy);
@@ -469,13 +428,12 @@ const App: React.FC = () => {
           </h2>
 
           <div className="flex gap-2 mb-10 overflow-x-auto max-w-full bg-white/5 p-6 rounded-xl border border-white/10">
-            {gameState.winningHand?.hand.map(t => <MahjongTile key={t.id} tile={t} size="md" className="pointer-events-none" />)}
-            {gameState.winningHand?.melds.map(m => m.tiles.map(t => <MahjongTile key={t.id} tile={t} size="sm" className="pointer-events-none opacity-80" />))}
+            {gameState.winningHand?.hand.map(t => <MahjongTile key={t.id} tile={t} size="md" className="pointer-events-none" />) || "流局"}
           </div>
 
           <div className="text-center mb-10 min-h-[120px]">
             {gameState.winningHand?.yaku.map(y => (
-              <div key={y.name} className={`text-4xl font-black italic mb-2 ${y.name.includes('懸賞') ? 'text-orange-400' : 'text-yellow-400'}`}>
+              <div key={y.name} className={`text-4xl font-black italic mb-2 ${y.name.includes('懸賞') || y.name.includes('絕技') ? 'text-orange-400' : 'text-yellow-400'}`}>
                 {y.name} {y.fan}番
               </div>
             ))}
@@ -486,10 +444,7 @@ const App: React.FC = () => {
             )}
           </div>
 
-          <button 
-            onClick={handleNextRound} 
-            className="bg-red-700 hover:bg-red-600 text-white px-20 py-6 text-4xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all"
-          >
+          <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-20 py-6 text-4xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all">
             {gameState.cpuScore <= 0 ? '挑戰成功：下一位老師' : 'NEXT ROUND'}
           </button>
         </div>

@@ -10,6 +10,7 @@ interface MahjongGameProps {
   onUseSkill: (skill: string) => void;
   onTsumo: () => void;
   onCall: (action: keyof CallActions | 'PASS') => void;
+  isPendingReach?: boolean;
 }
 
 // 名字簡化映射表
@@ -28,7 +29,7 @@ const simplifyName = (name: string) => {
   return map[name] || name;
 };
 
-const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill, onTsumo, onCall }) => {
+const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill, onTsumo, onCall, isPendingReach }) => {
   const cpuRiverRef = useRef<HTMLDivElement>(null);
   const playerRiverRef = useRef<HTMLDivElement>(null);
   const [cheatCount, setCheatCount] = useState(0);
@@ -68,6 +69,9 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
       setCheatCount(prev => prev + 1);
     }
   };
+
+  // 判斷是否顯示立直棒：正式立直 或 宣告立直中(等待棄牌)
+  const showReachStick = state.isPlayerReach || isPendingReach;
 
   return (
     <div className="w-full h-full flex flex-col bg-[#064e3b] border-[12px] border-[#2c1a10] relative shadow-inner overflow-hidden">
@@ -135,7 +139,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
           </div>
 
           <div className="flex flex-col items-end min-w-[140px] flex-shrink-0">
-             <div className="text-yellow-500 text-xs font-black tracking-widest mb-1 opacity-80">玩家點數</div>
+             <div className="text-yellow-500 text-2xl font-black tracking-widest mb-1 opacity-80">玩家點數</div>
              <div className="text-white text-4xl font-black font-mono tracking-tighter leading-none shadow-black drop-shadow-md">
                {state.playerScore}
              </div>
@@ -146,7 +150,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
       {/* Rivers */}
       <div className="flex-grow flex items-center justify-around px-10 py-4 relative overflow-hidden">
         <div className="flex flex-col items-center gap-2 h-full max-h-[320px]">
-          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">{simplifiedName}河牌 {state.isCpuReach && <span className="text-orange-500 ml-2">[ 立直 ]</span>}</span>
+          <span className="text-white/40 font-bold text-2xl uppercase tracking-widest">{simplifiedName}河牌 {state.isCpuReach && <span className="text-orange-500 ml-2">[ 立直 ]</span>}</span>
           <div ref={cpuRiverRef} className="flex-grow overflow-y-auto custom-scrollbar pr-1 max-w-[560px] scroll-smooth">
             <div className="grid grid-cols-12 gap-1 p-2 bg-black/30 rounded border border-white/10 h-fit">
               {state.cpuDiscards.map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)}
@@ -155,7 +159,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
         </div>
 
         <div className="flex flex-col items-center gap-2 h-full max-h-[320px]">
-          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">玩家河牌 {state.isPlayerFuriten && <span className="text-red-500 ml-2">[ 振聽 ]</span>}</span>
+          <span className="text-white/40 font-bold text-2xl uppercase tracking-widest">玩家河牌 {state.isPlayerFuriten && <span className="text-red-500 ml-2">[ 振聽 ]</span>}</span>
           <div ref={playerRiverRef} className="flex-grow overflow-y-auto custom-scrollbar pr-1 max-w-[560px] scroll-smooth">
             <div className="grid grid-cols-12 gap-1 p-2 bg-black/30 rounded border border-white/10 h-fit">
               {state.playerDiscards.map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)}
@@ -179,8 +183,8 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
             
             {state.currentTurn === 'player' && state.playerHand.length % 3 === 2 && (
               <>
+                {!state.isPlayerReach && <button onClick={() => onUseSkill('REACH')} className="bg-orange-600 text-white border-orange-800 px-6 py-1.5 font-black text-xl border-b-4">立直</button>}
                 <button onClick={() => onUseSkill('EXCHANGE')} disabled={state.playerEnergy < 30} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 30 ? 'bg-cyan-600 text-white border-cyan-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>換牌 (30 EP)</button>
-                {!state.isPlayerReach && <button onClick={() => onUseSkill('REACH')} disabled={state.playerEnergy < 20} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 20 ? 'bg-orange-600 text-white border-orange-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>立直 (20 EP)</button>}
                 <button onClick={() => onUseSkill('TSUMO')} disabled={state.playerEnergy < 90} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 90 ? 'bg-purple-600 text-white border-purple-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>絕技胡牌 (90 EP)</button>
               </>
             )}
@@ -189,9 +193,18 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
           </div>
         </div>
 
-        <div className="w-[80%] max-w-3xl h-6 bg-zinc-900 rounded-full border-2 border-white/20 mb-4 overflow-hidden relative shadow-inner">
-          <div className="h-full bg-gradient-to-r from-red-600 via-yellow-500 to-green-500 transition-all duration-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" style={{ width: `${state.playerEnergy}%` }} />
-          <div className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-white mix-blend-difference tracking-widest uppercase">技能能量 EP: {state.playerEnergy} / 100</div>
+        <div className="w-[80%] max-w-3xl mb-4 relative flex items-end">
+          {showReachStick && (
+             <img 
+               src="https://raw.githubusercontent.com/BillyPan/MJA2/main/1000.png"
+               alt="Riichi"
+               className="absolute right-[100%] bottom-0 mr-4 h-6 w-auto object-contain drop-shadow-[0_0_5px_rgba(0,0,0,0.8)]"
+             />
+          )}
+          <div className="w-full h-6 bg-zinc-900 rounded-full border-2 border-white/20 overflow-hidden relative shadow-inner">
+             <div className="h-full bg-gradient-to-r from-red-600 via-yellow-500 to-green-500 transition-all duration-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" style={{ width: `${state.playerEnergy}%` }} />
+             <div className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-white mix-blend-difference tracking-widest uppercase">技能能量 EP: {state.playerEnergy} / 100</div>
+          </div>
         </div>
 
         <div className="flex items-end gap-2 px-10">

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
-import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten } from './services/mahjongEngine';
+import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateGodHand } from './services/mahjongEngine';
 import { getInstructorDialogue } from './services/gemini';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
@@ -138,7 +138,10 @@ const App: React.FC = () => {
     const updatedDiscards = [...gameState.playerDiscards, discarded];
     
     let reachStatus = gameState.isPlayerReach;
-    if (isPendingReach && getWaitingTiles(newHand, gameState.playerMelds).length > 0) reachStatus = true;
+    // 修正：只要是立直宣言狀態，棄牌後即確立立直 (即使是非聽牌立直，也視為成立以維持視覺效果)
+    if (isPendingReach) {
+        reachStatus = true;
+    }
     setIsPendingReach(false);
 
     const waiting = getWaitingTiles(newHand, gameState.playerMelds);
@@ -264,16 +267,10 @@ const App: React.FC = () => {
       // 修正：必須先棄牌後才能立直，這裡預判打掉某張牌後是否聽牌
       let isNowReach = prev.isCpuReach;
       if (!isNowReach && prev.cpuMelds.length === 0) {
-          // 檢查手牌中是否有任何一張牌打出後，向聽數變為 0 (聽牌)
-          // 為了準確，我們需要檢查打出後的向聽數
-          // 但在 cpuDecide 階段，我們還沒決定打哪張。
-          // 這裡的邏輯是：如果我「現在」的狀態 (14張) 打出一張後能聽牌 (Shanten 0)，則考慮宣告立直
-          // 我們先預計算最佳棄牌
           const bestDiscardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
           const tempHand = fullHand.filter((_, i) => i !== bestDiscardIdx);
           
           if (calculateShanten(tempHand, prev.cpuMelds) === 0) {
-             // 確保真的有聽牌 (聽牌張數 > 0)
              const waiters = getWaitingTiles(tempHand, prev.cpuMelds);
              if (waiters.length > 0 && Math.random() > 0.4) {
                  isNowReach = true;
@@ -284,8 +281,6 @@ const App: React.FC = () => {
       // 3. 執行棄牌計算
       let discardIdx = 0;
       if (isNowReach) {
-        // 如果是這回合立直或之前已立直，通常模切 (打掉摸進來的那張，即最後一張)
-        // 為了簡單起見，立直狀態下固定打出摸進的牌
         discardIdx = fullHand.length - 1; 
       } else {
         discardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
@@ -308,12 +303,11 @@ const App: React.FC = () => {
       const hasCall = Object.values(calls).some(v => v);
       if (!hasCall) setTimeout(playerDraw, 800);
 
-      // 如果這回合宣告立直，更新訊息
       const msg = isNowReach && !prev.isCpuReach ? `${prev.selectedInstructor?.name}：立直！` : (Math.random() < 0.3 ? getInstructorDialogue() : prev.message);
 
       return {
         ...prev,
-        cpuHand: sortHand(newHand), // 棄牌後整理手牌
+        cpuHand: sortHand(newHand),
         cpuDiscards: updatedDiscards,
         lastDiscardTile: discarded,
         pendingCall: hasCall ? calls : null,
@@ -362,11 +356,9 @@ const App: React.FC = () => {
   const handleCall = (action: keyof CallActions | 'PASS') => {
     if (action === 'PASS') {
       const handCount = gameState.playerHand.length;
-      // 如果手牌數量模 3 餘 2（例如 2, 5, 8, 11, 14），代表已經摸過牌了（拒絕自摸或暗槓/加槓），此時只清除 pendingCall
       if (handCount % 3 === 2) {
         setGameState(prev => ({ ...prev, pendingCall: null }));
       } else {
-        // 如果手牌數量模 3 餘 1（例如 1, 4, 7, 10, 13），代表還沒摸牌（拒絕吃碰槓），此時需要進行摸牌
         setGameState(prev => ({ ...prev, pendingCall: null }));
         playerDraw();
       }
@@ -445,36 +437,58 @@ const App: React.FC = () => {
   };
 
   const useSkill = (skillType: string) => {
-    if (skillType === 'REACH' && gameState.playerEnergy >= 20) {
+    // 立直現在不需要能量，且不扣能量
+    if (skillType === 'REACH') {
       playSound('skill');
       setIsPendingReach(true);
-      setGameState(prev => ({ ...prev, playerEnergy: prev.playerEnergy - 20, message: "宣告立直！" }));
+      // 移除扣能與檢查邏輯
+      setGameState(prev => ({ ...prev, message: "宣告立直！" }));
+
     } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 90) {
       playSound('skill');
-      // 確保是對13張牌+1張牌進行判定
-      const handToCheck = gameState.playerHand.length % 3 === 2 ? gameState.playerHand.slice(0, gameState.playerHand.length - 1) : gameState.playerHand;
-      const waiters = getWaitingTiles(handToCheck, gameState.playerMelds);
-      const t = waiters.length > 0 ? waiters[0] : "m1"; 
-      const winTile = { id: 'skill-hu', type: t[0] as any, value: parseInt(t.slice(1)) };
-      const res = calculateFinalScore([...handToCheck, winTile], gameState.playerMelds, true, gameState.isPlayerReach, gameState.doraIndicator, false, true);
-      if (res) {
-        // 修復：使用必殺自摸獲勝時也需要檢查是否擊敗老師並存檔
-        const cpuNewScore = gameState.cpuScore - res.points;
-        if (gameState.selectedInstructor && cpuNewScore <= 0) {
-            saveProgress(gameState.selectedInstructor.id);
-        }
+      
+      const godHandData = generateGodHand();
+      const newHand = godHandData.hand;
+      
+      setGameState(prev => ({
+        ...prev,
+        playerEnergy: prev.playerEnergy - 90,
+        playerHand: newHand,
+        playerMelds: [],
+        message: `絕技發動：${godHandData.yakuName}！`
+      }));
 
-        setGameState(prev => ({
-          ...prev,
-          playerEnergy: prev.playerEnergy - 90,
-          // phase 保持 PLAYING
-          playerScore: prev.playerScore + res.points,
-          cpuScore: cpuNewScore,
-          winningHand: { ...res, winner: 'player' },
-          message: "必殺自摸！",
-          isWinAnimation: true
-        }));
-      }
+      setTimeout(() => {
+        const res = calculateFinalScore(
+            newHand, 
+            [], 
+            true, 
+            gameState.isPlayerReach, 
+            gameState.doraIndicator, 
+            false, 
+            true,
+            godHandData.yakuName,
+            godHandData.fan
+        );
+
+        if (res) {
+          setGameState(prev => {
+            const cpuNewScore = prev.cpuScore - res.points;
+            if (prev.selectedInstructor && cpuNewScore <= 0) {
+                saveProgress(prev.selectedInstructor.id);
+            }
+            return {
+                ...prev,
+                playerScore: prev.playerScore + res.points,
+                cpuScore: cpuNewScore,
+                winningHand: { ...res, winner: 'player' },
+                isWinAnimation: true,
+                message: `絕技：${godHandData.yakuName}！`
+            };
+          });
+        }
+      }, 2000);
+
     } else if (skillType === 'EXCHANGE' && gameState.playerEnergy >= 30) {
       if (gameState.playerHand.length % 3 !== 2) return;
       playSound('skill');
@@ -489,16 +503,45 @@ const App: React.FC = () => {
         const waiters = getWaitingTiles(handWithoutLast, prev.playerMelds);
         
         // 如果立直，高機率換到聽牌
-        if (prev.isPlayerReach && waiters.length > 0 && Math.random() < 0.70) {
-          const waiterIdx = newDeck.findIndex(t => waiters.includes(`${t.type}${t.value}`));
-          if (waiterIdx !== -1) {
-            drawn = newDeck.splice(waiterIdx, 1)[0];
-            msg = "必殺換牌！一發入魂！";
-          } else {
-            newDeck = newDeck.sort(() => Math.random() - 0.5);
-            drawn = newDeck.pop()!;
-          }
-        } else {
+        let forcedWin = false;
+        // 修正：必須包含 pendingReach 的判斷，因為按下立直後還未棄牌，prev.isPlayerReach 為 false
+        if ((prev.isPlayerReach || isPendingReach) && waiters.length > 0) {
+            // 70% 機率直接抽到胡牌的牌
+            if (Math.random() < 0.70) {
+                // 優先檢查牌山中是否有聽的牌
+                const deckCandidates = waiters.filter(w => {
+                    const t = w[0] as any;
+                    const v = parseInt(w.slice(1));
+                    return newDeck.some(dt => dt.type === t && dt.value === v);
+                });
+                
+                if (deckCandidates.length > 0) {
+                     // 隨機選一個現有的聽牌
+                     const targetWait = deckCandidates[Math.floor(Math.random() * deckCandidates.length)];
+                     const targetType = targetWait[0] as any;
+                     const targetValue = parseInt(targetWait.slice(1));
+                     
+                     const waiterIdx = newDeck.findIndex(t => t.type === targetType && t.value === targetValue);
+                     if (waiterIdx !== -1) {
+                         drawn = newDeck.splice(waiterIdx, 1)[0];
+                         msg = "必殺換牌！一發入魂！";
+                         forcedWin = true;
+                     }
+                } else {
+                    // 如果牌山沒這張牌（被自己打光了或在對手手裡），直接虛空創造一張
+                    const targetWait = waiters[Math.floor(Math.random() * waiters.length)];
+                    const targetType = targetWait[0] as any;
+                    const targetValue = parseInt(targetWait.slice(1));
+                    
+                    drawn = { id: `god-given-${Date.now()}`, type: targetType, value: targetValue };
+                    msg = "必殺換牌！虛空造牌！";
+                    forcedWin = true;
+                }
+            }
+        }
+        
+        if (!forcedWin) {
+          // 一般換牌或運氣不好沒換到
           newDeck = newDeck.sort(() => Math.random() - 0.5);
           drawn = newDeck.pop()!;
         }
@@ -523,6 +566,7 @@ const App: React.FC = () => {
   };
 
   const handleNextRound = () => {
+    // ... (same as before)
     if (!gameState.selectedInstructor) {
       setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }));
       return;
@@ -656,7 +700,14 @@ const App: React.FC = () => {
       )}
 
       {gameState.phase === GamePhase.PLAYING && (
-        <MahjongGame state={gameState} onDiscard={handlePlayerDiscard} onUseSkill={useSkill} onTsumo={() => handleCall('ron')} onCall={handleCall} />
+        <MahjongGame 
+          state={gameState} 
+          onDiscard={handlePlayerDiscard} 
+          onUseSkill={useSkill} 
+          onTsumo={() => handleCall('ron')} 
+          onCall={handleCall} 
+          isPendingReach={isPendingReach}
+        />
       )}
 
       {gameState.phase === GamePhase.RESULT && (

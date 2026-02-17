@@ -1,5 +1,5 @@
 
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { GameState, Tile, CallActions, Meld } from '../types';
 import MahjongTile from './MahjongTile';
 import { calculateFinalScore, sortHand } from '../services/mahjongEngine';
@@ -31,6 +31,7 @@ const simplifyName = (name: string) => {
 const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill, onTsumo, onCall }) => {
   const cpuRiverRef = useRef<HTMLDivElement>(null);
   const playerRiverRef = useRef<HTMLDivElement>(null);
+  const [cheatCount, setCheatCount] = useState(0);
 
   // 強化自摸判定：必須是玩家回合且手牌為14張（含副露的邏輯為 mod 3 === 2）
   const canPlayerTsumo = useMemo(() => {
@@ -46,6 +47,9 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
     if (playerRiverRef.current) playerRiverRef.current.scrollTop = playerRiverRef.current.scrollHeight;
   }, [state.playerDiscards.length]);
 
+  // 重置作弊計數器當新局開始時 (依據牌局階段或分數變動來簡單判斷重置與否，或手動不重置讓玩家一直爽)
+  // 這裡選擇不主動重置，讓玩家這局開啟後一直有效，直到刷新頁面。
+  
   // 判定是否允許點擊手牌棄牌 (手牌數量模 3 餘 2 代表已摸牌)
   const canInteractWithHand = state.currentTurn === 'player' && !state.pendingCall && (state.playerHand.length % 3 === 2);
 
@@ -54,8 +58,16 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
   const simplifiedName = simplifyName(instructorName);
   const displayMessage = state.message.replace(instructorName, simplifiedName);
 
-  // 判斷是否顯示 CPU 胡牌手牌
+  // 判斷是否顯示 CPU 胡牌手牌 (胡牌動畫 OR 作弊開啟)
+  const isCheatEnabled = cheatCount >= 5;
   const isCpuWinReveal = state.isWinAnimation && state.winningHand?.winner === 'cpu';
+  const shouldRevealCpuHand = isCpuWinReveal || isCheatEnabled;
+
+  const handleAvatarClick = () => {
+    if (cheatCount < 5) {
+      setCheatCount(prev => prev + 1);
+    }
+  };
 
   return (
     <div className="w-full h-full flex flex-col bg-[#064e3b] border-[12px] border-[#2c1a10] relative shadow-inner overflow-hidden">
@@ -63,20 +75,26 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
       <div className="h-40 flex-shrink-0 flex justify-between items-center px-6 bg-black/60 border-b-2 border-black/40 z-[100]">
         
         {/* Left: CPU Info & Hand */}
-        <div className="flex items-center gap-4 flex-shrink-0">
-          <div className="relative flex-shrink-0">
-            <img src={state.selectedInstructor?.avatar} className="w-20 h-20 rounded-full border-4 border-yellow-500 bg-white object-cover shadow-2xl" alt="CPU" />
-            <div className="absolute -bottom-2 -right-2 bg-red-600 text-white px-2 py-0.5 text-xs font-bold rounded border border-white">CPU</div>
+        <div className="flex items-center gap-6 flex-shrink-0">
+          <div 
+            className="relative flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+            onClick={handleAvatarClick}
+            title="點擊5次開啟透視眼"
+          >
+            {/* 調整頭像大小至 w-28 h-28 */}
+            <img src={state.selectedInstructor?.avatar} className="w-28 h-28 rounded-full border-4 border-yellow-500 bg-white object-cover shadow-2xl" alt="Teacher" />
+            <div className="absolute -bottom-2 -right-2 bg-red-600 text-white px-3 py-1 text-sm font-bold rounded border border-white">老師</div>
           </div>
           <div className="flex flex-col flex-shrink-0 mr-2 min-w-[80px]">
             <div className="text-yellow-400 font-black text-2xl italic tracking-wider">{simplifiedName}</div>
             <div className="text-white text-lg font-bold font-mono tracking-tighter">點數: {state.cpuScore}</div>
           </div>
           {/* CPU Hand */}
-          <div className={`flex gap-0.5 ml-2 self-center origin-left transition-all duration-500 ${isCpuWinReveal ? 'scale-[0.6]' : 'scale-90'}`}>
-             {isCpuWinReveal && state.winningHand ? (
-                // Reveal winning hand tiles
-                sortHand(state.winningHand.hand).map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)
+          {/* 加入 w-[360px] 寬度限制當顯示手牌時，因為 scale 不會影響佈局空間，導致原始寬度擠壓對話框 */}
+          <div className={`flex gap-0.5 ml-2 self-center origin-left transition-all duration-500 ${shouldRevealCpuHand ? 'scale-[0.6] w-[360px]' : 'scale-90'}`}>
+             {shouldRevealCpuHand ? (
+                // Reveal winning hand tiles OR Cheat enabled tiles
+                sortHand(isCpuWinReveal && state.winningHand ? state.winningHand.hand : state.cpuHand).map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)
              ) : (
                 // Hidden hand
                 state.cpuHand.map((_, i) => <div key={i} className="w-6 h-9 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400" />)

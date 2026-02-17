@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
-import { sortHand, checkWin, calculateFinalScore, checkTenpai, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard } from './services/mahjongEngine';
+// Removed checkTenpai as it is not exported from mahjongEngine and not used in this file. 
+// Hand readiness is determined using getWaitingTiles elsewhere.
+import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard } from './services/mahjongEngine';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
 
@@ -110,6 +112,7 @@ const App: React.FC = () => {
         ...prev,
         deck: newDeck,
         playerHand: newHand,
+        playerEnergy: Math.min(100, prev.playerEnergy + 5), // 摸牌回充 5 EP
         currentTurn: 'player',
         pendingCall: calls.kan ? calls : null,
         lastDiscardTile: kanTile,
@@ -365,14 +368,39 @@ const App: React.FC = () => {
       playSound('skill');
       setGameState(prev => {
         const lastTile = prev.playerHand[prev.playerHand.length - 1];
-        const newDeck = [lastTile, ...prev.deck].sort(() => Math.random() - 0.5);
-        const drawn = newDeck.pop()!;
+        let newDeck = [lastTile, ...prev.deck];
+        let drawn: Tile | undefined;
+        let skillMessage = "換牌術發動！";
+
+        // 立直後的特殊換牌邏輯 (70% 成功率)
+        if (prev.isPlayerReach && Math.random() < 0.7) {
+          const hand13 = prev.playerHand.slice(0, -1);
+          const waiters = getWaitingTiles(hand13, prev.playerMelds);
+          
+          if (waiters.length > 0) {
+            // 在牌庫中尋找可以胡的牌
+            const waiterIndex = newDeck.findIndex(d => waiters.includes(`${d.type}${d.value}`));
+            if (waiterIndex !== -1) {
+              drawn = newDeck.splice(waiterIndex, 1)[0];
+              // 重新打亂剩下的牌庫
+              newDeck = newDeck.sort(() => Math.random() - 0.5);
+              skillMessage = "必殺換牌！聽牌機率上升！";
+            }
+          }
+        }
+
+        // 如果不是立直或機率沒中，或牌庫沒牌了，則正常隨機抽
+        if (!drawn) {
+          newDeck = newDeck.sort(() => Math.random() - 0.5);
+          drawn = newDeck.pop()!;
+        }
+
         return {
           ...prev,
           playerHand: [...prev.playerHand.slice(0, -1), drawn],
           deck: newDeck,
           playerEnergy: prev.playerEnergy - 30,
-          message: "換牌術發動！"
+          message: skillMessage
         };
       });
     }
@@ -396,10 +424,15 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-black overflow-hidden serif-font">
       {gameState.phase === GamePhase.INTRO && (
-        <div className="text-center">
-          <h1 className="text-9xl font-black mb-4 text-yellow-500 italic drop-shadow-[0_0_20px_rgba(234,179,8,0.5)]">麻雀學園</h1>
-          <h2 className="text-4xl text-white tracking-[1em] border-y-2 py-4">畢業篇 1998</h2>
-          <button onClick={() => setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }))} className="mt-20 bg-red-700 text-white px-12 py-4 text-3xl font-black animate-pulse">INSERT COIN</button>
+        <div className="text-center flex flex-col items-center">
+          <div className="flex flex-col items-center">
+            <h1 className="text-9xl font-black mb-4 text-yellow-500 italic drop-shadow-[0_0_20px_rgba(234,179,8,0.5)]">麻雀學園</h1>
+            <h2 className="text-6xl text-white tracking-[0.5em] border-y-2 py-4 w-full text-center">卒業篇</h2>
+          </div>
+          <div className="flex flex-col items-center mt-20">
+            <button onClick={() => setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }))} className="bg-red-700 text-white px-12 py-4 text-3xl font-black animate-pulse">INSERT COIN</button>
+            <p className="mt-20 text-zinc-500 text-xl font-bold tracking-wider">【bILLYpAN Gemini Vibe Coding 複刻試作 Ver 0.96】</p>
+          </div>
         </div>
       )}
 

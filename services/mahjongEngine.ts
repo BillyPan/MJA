@@ -22,7 +22,6 @@ const getCounts = (tiles: Tile[]): Record<string, number> => {
 
 const isTerminalOrHonor = (t: Tile) => t.type === 'z' || t.value === 1 || t.value === 9;
 
-// --- 核心：嚴謹的手牌分解判定 ---
 const canFormSets = (counts: Record<string, number>, setsNeeded: number): boolean => {
   const keys = Object.keys(counts).filter(k => counts[k] > 0).sort();
   if (keys.length === 0) return setsNeeded === 0;
@@ -31,14 +30,12 @@ const canFormSets = (counts: Record<string, number>, setsNeeded: number): boolea
   const type = key[0];
   const val = parseInt(key.slice(1));
 
-  // 1. 嘗試組成刻子
   if (counts[key] >= 3) {
     counts[key] -= 3;
     if (canFormSets(counts, setsNeeded - 1)) return true;
     counts[key] += 3;
   }
 
-  // 2. 嘗試組成順子
   if (type !== 'z' && val <= 7) {
     const k2 = `${type}${val + 1}`;
     const k3 = `${type}${val + 2}`;
@@ -48,24 +45,18 @@ const canFormSets = (counts: Record<string, number>, setsNeeded: number): boolea
       counts[key]++; counts[k2]++; counts[k3]++;
     }
   }
-
   return false;
 };
 
 export const checkWin = (hand: Tile[], melds: Meld[] = []): boolean => {
   const totalTiles = hand.length + melds.length * 3;
   if (totalTiles !== 14) return false;
-
   const counts = getCounts(hand);
-
-  // 七對子
   if (melds.length === 0) {
     const pairs = Object.values(counts).filter(v => v === 2).length;
     if (pairs === 7) return true;
     if (isKokushi(hand)) return true;
   }
-
-  // 標準形
   for (const key in counts) {
     if (counts[key] >= 2) {
       const nextCounts = { ...counts };
@@ -73,7 +64,6 @@ export const checkWin = (hand: Tile[], melds: Meld[] = []): boolean => {
       if (canFormSets(nextCounts, 4 - melds.length)) return true;
     }
   }
-
   return false;
 };
 
@@ -124,34 +114,49 @@ export const calculateShanten = (hand: Tile[], melds: Meld[]): number => {
   return Math.max(-1, minShanten);
 };
 
-const CPU_WEIGHTS: Record<number, any> = {
-  1: { W_shanten: 80, W_ukeire: 5, W_plan: 5, W_isolated: 5, W_break: 5, W_risk: 5 },
-  2: { W_shanten: 90, W_ukeire: 7, W_plan: 6, W_isolated: 6, W_break: 4, W_risk: 4 },
-  3: { W_shanten: 85, W_ukeire: 5, W_plan: 6, W_isolated: 5, W_break: 6, W_risk: 12 },
-  4: { W_shanten: 95, W_ukeire: 6, W_plan: 8, W_isolated: 6, W_break: 12, W_risk: 8 },
-  5: { W_shanten: 100, W_ukeire: 7, W_plan: 15, W_isolated: 6, W_break: 10, W_risk: 8 },
-  6: { W_shanten: 105, W_ukeire: 10, W_plan: 10, W_isolated: 7, W_break: 8, W_risk: 8 },
-  7: { W_shanten: 110, W_ukeire: 11, W_plan: 12, W_isolated: 8, W_break: 8, W_risk: 10 },
-  8: { W_shanten: 115, W_ukeire: 12, W_plan: 12, W_isolated: 8, W_break: 7, W_risk: 15 },
-  9: { W_shanten: 130, W_ukeire: 15, W_plan: 15, W_isolated: 12, W_break: 3, W_risk: 2 },
-};
-
 export const getBestDiscard = (hand: Tile[], melds: Meld[], difficulty: number, playerDiscards: Tile[] = [], isPlayerReach: boolean = false): number => {
-  const weights = CPU_WEIGHTS[difficulty] || CPU_WEIGHTS[1];
   const currentShanten = calculateShanten(hand, melds);
   const results = hand.map((targetTile, idx) => {
     let score = 0;
     const tempHand = hand.filter((_, i) => i !== idx);
     const newShanten = calculateShanten(tempHand, melds);
-    if (newShanten <= currentShanten) score += weights.W_shanten;
+    if (newShanten < currentShanten) score += 300;
+    else if (newShanten === currentShanten) score += 100;
     const waiters = getWaitingTiles(tempHand, melds);
-    score += waiters.length * weights.W_ukeire;
-    const isSafe = playerDiscards.some(d => d.type === targetTile.type && d.value === targetTile.value);
-    if (isSafe) score += weights.W_risk;
-    return { idx, score, shanten: newShanten };
+    score += waiters.length * 50;
+    if (isPlayerReach) {
+      const isSafe = playerDiscards.some(d => d.type === targetTile.type && d.value === targetTile.value);
+      if (isSafe) score += 1000;
+      else if (isTerminalOrHonor(targetTile)) score += 300;
+    }
+    if (isTerminalOrHonor(targetTile) && playerDiscards.length < 6) score += 100;
+    return { idx, score };
   });
   results.sort((a, b) => b.score - a.score);
   return results[0].idx;
+};
+
+export const shouldCPUCall = (hand: Tile[], melds: Meld[], tile: Tile, type: 'pon' | 'chi', difficulty: number): boolean => {
+  const currentShanten = calculateShanten(hand, melds);
+  // 模擬鳴牌後的向聽數變化
+  const dummyTile = { ...tile, id: 'dummy' };
+  let testHand: Tile[] = [];
+  if (type === 'pon') {
+    testHand = hand.filter(t => t.type !== tile.type || t.value !== tile.value).slice(0, hand.length - 2);
+  } else {
+    testHand = hand.slice(0, hand.length - 2);
+  }
+  
+  const newShanten = calculateShanten(testHand, [...melds, { type, tiles: [] }]);
+
+  if (currentShanten <= 0 && melds.length === 0) return false;
+
+  if (newShanten < currentShanten) {
+    const chance = 0.5 + (difficulty * 0.05);
+    return Math.random() < chance;
+  }
+  if (type === 'pon' && tile.type === 'z' && tile.value >= 5) return true;
+  return false;
 };
 
 export const getWaitingTiles = (hand: Tile[], melds: Meld[]): string[] => {
@@ -169,16 +174,9 @@ export const getWaitingTiles = (hand: Tile[], melds: Meld[]): string[] => {
 };
 
 export const calculateFinalScore = (hand: Tile[], melds: Meld[], isTsumo: boolean, isReach: boolean, indicator: Tile | null, isDealer: boolean = false, isSkill: boolean = false): WinningResult | null => {
-  // 如果是技能胡牌，不需要 checkWin 判定（因為技能已經選好牌了），但為了安全我們還是呼叫
   if (!isSkill && !checkWin(hand, melds)) return null;
-
   const yaku = evaluateYaku(hand, melds, isReach, isTsumo);
-  
-  // 街機技能強制胡牌
-  if (isSkill) {
-    yaku.push({ name: "絕技：必殺自摸", fan: 13 });
-  }
-
+  if (isSkill) yaku.push({ name: "絕技：必殺自摸", fan: 13 });
   if (yaku.length === 0) return null;
 
   const dora = calculateDora(hand, melds, indicator);
@@ -219,13 +217,10 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
     if (!hasHonor) yaku.push({ name: '清一色', fan: isMenzen ? 6 : 5 });
     else yaku.push({ name: '混一色', fan: isMenzen ? 3 : 2 });
   }
-
   if (isMenzen && Object.values(getCounts(hand)).filter(v => v === 2).length === 7) yaku.push({ name: '七對子', fan: 2 });
   if (isKokushi(hand)) yaku.push({ name: '國士無雙', fan: 13 });
-
-  // 街機常見的大牌
-  if (counts['z1'] >= 3 && counts['z2'] >= 3 && counts['z3'] >= 3 && counts['z4'] >= 3) yaku.push({ name: "大四喜", fan: 13 });
-
+  if (counts['z1'] >= 3) yaku.push({ name: '役牌：東', fan: 1 });
+  
   return yaku;
 };
 
@@ -244,7 +239,6 @@ export const calculateDora = (hand: Tile[], melds: Meld[], indicator: Tile | nul
 export const checkOwnTurnKan = (hand: Tile[], melds: Meld[]): Tile | null => {
   const counts = getCounts(hand);
   for (const k in counts) if (counts[k] === 4) return hand.find(t => `${t.type}${t.value}` === k) || null;
-  // 檢查加槓
   for (const m of melds) {
     if (m.type === 'pon') {
       const match = hand.find(t => t.type === m.tiles[0].type && t.value === m.tiles[0].value);

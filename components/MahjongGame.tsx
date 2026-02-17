@@ -42,7 +42,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
           </div>
           <div className="flex flex-col">
             <div className="text-yellow-400 font-black text-2xl italic">{state.selectedInstructor?.name}</div>
-            <div className="text-white text-xl font-bold font-mono">PTS: {state.cpuScore}</div>
+            <div className="text-white text-xl font-bold font-mono">點數: {state.cpuScore}</div>
           </div>
         </div>
 
@@ -52,36 +52,36 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
           </div>
           <div className="flex items-center gap-4 bg-red-950/40 px-6 py-2 rounded border border-red-500/30">
             <div className="flex flex-col items-start leading-none">
-              <span className="text-red-500 font-black text-xs italic uppercase opacity-70">Bonus</span>
-              <span className="text-red-500 font-black text-sm italic">DORA</span>
+              <span className="text-red-500 font-black text-xs italic uppercase opacity-70">懸賞</span>
+              <span className="text-red-500 font-black text-sm italic">寶牌 DORA</span>
             </div>
             {state.doraIndicator && <MahjongTile tile={state.doraIndicator} size="xs" />}
           </div>
         </div>
 
         <div className="flex flex-col items-end min-w-[300px]">
-           <div className="text-white text-2xl font-black italic">PLAYER PTS: {state.playerScore}</div>
+           <div className="text-white text-2xl font-black italic">玩家點數: {state.playerScore}</div>
            <div className="flex gap-1 mt-2">
              {state.cpuHand.map((_, i) => <div key={i} className="w-7 h-11 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400" />)}
            </div>
         </div>
       </div>
 
-      {/* Rivers */}
+      {/* Rivers - Expanded to 12 columns */}
       <div className="flex-grow flex items-center justify-around px-10 py-4 relative overflow-hidden">
         <div className="flex flex-col items-center gap-2 h-full max-h-[320px]">
-          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">CPU River</span>
-          <div ref={cpuRiverRef} className="flex-grow overflow-y-auto custom-scrollbar pr-1 w-fit scroll-smooth">
-            <div className="grid grid-cols-6 gap-1 p-2 bg-black/30 rounded border border-white/10 h-fit">
+          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">對手河牌</span>
+          <div ref={cpuRiverRef} className="flex-grow overflow-y-auto custom-scrollbar pr-1 max-w-[560px] scroll-smooth">
+            <div className="grid grid-cols-12 gap-1 p-2 bg-black/30 rounded border border-white/10 h-fit">
               {state.cpuDiscards.map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)}
             </div>
           </div>
         </div>
 
         <div className="flex flex-col items-center gap-2 h-full max-h-[320px]">
-          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">Player River {state.isPlayerFuriten && <span className="text-red-500 ml-2">[ 振聽 ]</span>}</span>
-          <div ref={playerRiverRef} className="flex-grow overflow-y-auto custom-scrollbar pr-1 w-fit scroll-smooth">
-            <div className="grid grid-cols-6 gap-1 p-2 bg-black/30 rounded border border-white/10 h-fit">
+          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">玩家河牌 {state.isPlayerFuriten && <span className="text-red-500 ml-2">[ 振聽 ]</span>}</span>
+          <div ref={playerRiverRef} className="flex-grow overflow-y-auto custom-scrollbar pr-1 max-w-[560px] scroll-smooth">
+            <div className="grid grid-cols-12 gap-1 p-2 bg-black/30 rounded border border-white/10 h-fit">
               {state.playerDiscards.map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)}
             </div>
           </div>
@@ -113,7 +113,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
 
         <div className="w-[70%] max-w-3xl h-5 bg-zinc-900 rounded-full border-2 border-white/20 mb-4 overflow-hidden relative">
           <div className="h-full bg-gradient-to-r from-red-600 via-yellow-500 to-green-500 transition-all duration-500" style={{ width: `${state.playerEnergy}%` }} />
-          <div className="absolute inset-0 flex items-center justify-center text-[9px] font-black text-white mix-blend-difference tracking-widest uppercase">Energy Power: {state.playerEnergy} / 100</div>
+          <div className="absolute inset-0 flex items-center justify-center text-[9px] font-black text-white mix-blend-difference tracking-widest uppercase">密技能量 EP: {state.playerEnergy} / 100</div>
         </div>
 
         <div className="flex items-end gap-2 px-10">

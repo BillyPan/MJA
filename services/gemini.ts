@@ -1,25 +1,68 @@
 
-import { GoogleGenAI } from "@google/genai";
+const DIALOGUES = [
+  "這張你敢打嗎",
+  "老師看穿你了",
+  "心跳加速囉",
+  "別偷看老師",
+  "這巡很危險",
+  "你在想什麼",
+  "牌感不錯喔",
+  "要不要碰我",
+  "再摸一張嘛",
+  "你手在抖耶",
+  "被我讀到了",
+  "這張好甜",
+  "老師要聽牌",
+  "你不會怕吧",
+  "我有點期待",
+  "打這張試試",
+  "別太緊張啦",
+  "你臉紅了",
+  "老師要胡囉",
+  "這局陪你玩",
+  "你很會撩牌",
+  "想被我胡嗎",
+  "這手不單純",
+  "讓老師看看",
+  "再一巡就好",
+  "你在讓我嗎",
+  "老師喜歡快",
+  "這張是陷阱",
+  "心思都寫臉",
+  "被我抓到了",
+  "這張專打你",
+  "被老師鎖定",
+  "心跳亂了吧",
+  "你逃不掉喔",
+  "老師想胡你",
+  "乖乖給我打",
+  "你越緊張越可愛",
+  "這巡我要你",
+  "手別抖成這樣",
+  "老師盯很久了",
+  "你在期待什麼",
+  "這張很犯規",
+  "被我吃定了",
+  "再靠近一點",
+  "老師喜歡狠的",
+  "這局不放你",
+  "你表情出賣了",
+  "被我玩壞了嗎",
+  "老師要上了",
+  "你敢放銃嗎",
+  "這張是愛心",
+  "別對我防守",
+  "老師會疼你",
+  "想被我胡吧",
+  "這手很色喔",
+  "你整個被看穿",
+  "老師不留情",
+  "你越來越燙",
+  "這局屬於我",
+  "乖，輪到你了"
+];
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-export const getInstructorDialogue = async (instructorName: string, event: string): Promise<string> => {
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `你現在是經典街機遊戲《麻雀學園》中的一位老師：${instructorName}。
-      當發生以下事件時，請說一句具有角色特色且符合90年代街機風格的簡短台詞（繁體中文）：
-      事件：${event}
-      限制：15字以內。`,
-      config: {
-        temperature: 0.8,
-        topK: 40,
-        topP: 0.95,
-      }
-    });
-    return response.text || "加油喔，同學！";
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    return "看招！";
-  }
+export const getInstructorDialogue = (): string => {
+  const randomIndex = Math.floor(Math.random() * DIALOGUES.length);
+  return DIALOGUES[randomIndex];
 };

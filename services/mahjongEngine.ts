@@ -22,6 +22,39 @@ const getCounts = (tiles: Tile[]): Record<string, number> => {
 
 const isTerminalOrHonor = (t: Tile) => t.type === 'z' || t.value === 1 || t.value === 9;
 
+// 檢查是否全為順子 + 一對將 (用於平和判定)
+const isAllSequencesWithPair = (counts: Record<string, number>, pairTileKey: string): boolean => {
+  const tempCounts = { ...counts };
+  // 扣除雀頭
+  tempCounts[pairTileKey] -= 2;
+  
+  // 嘗試移除 4 個順子
+  const removeSequences = (c: Record<string, number>, setsNeeded: number): boolean => {
+    if (setsNeeded === 0) return true;
+    const keys = Object.keys(c).filter(k => c[k] > 0).sort();
+    if (keys.length === 0) return false;
+    
+    const key = keys[0];
+    const type = key[0];
+    const val = parseInt(key.slice(1));
+    
+    if (type === 'z') return false; // 字牌不能組順子
+    if (val > 7) return false; // 8,9 不能當順子開頭
+    
+    const k2 = `${type}${val + 1}`;
+    const k3 = `${type}${val + 2}`;
+    
+    if (c[k2] > 0 && c[k3] > 0) {
+      c[key]--; c[k2]--; c[k3]--;
+      if (removeSequences(c, setsNeeded - 1)) return true;
+      c[key]++; c[k2]++; c[k3]++; // backtrack
+    }
+    return false;
+  };
+  
+  return removeSequences(tempCounts, 4);
+};
+
 const canFormSets = (counts: Record<string, number>, setsNeeded: number): boolean => {
   const keys = Object.keys(counts).filter(k => counts[k] > 0).sort();
   if (keys.length === 0) return setsNeeded === 0;
@@ -30,12 +63,14 @@ const canFormSets = (counts: Record<string, number>, setsNeeded: number): boolea
   const type = key[0];
   const val = parseInt(key.slice(1));
 
+  // 試刻子
   if (counts[key] >= 3) {
     counts[key] -= 3;
     if (canFormSets(counts, setsNeeded - 1)) return true;
     counts[key] += 3;
   }
 
+  // 試順子
   if (type !== 'z' && val <= 7) {
     const k2 = `${type}${val + 1}`;
     const k3 = `${type}${val + 2}`;
@@ -52,13 +87,17 @@ export const checkWin = (hand: Tile[], melds: Meld[] = []): boolean => {
   const totalTiles = hand.length + melds.length * 3;
   if (totalTiles !== 14) return false;
   const counts = getCounts(hand);
+  
+  // 七對子與國士無雙 (僅門前清)
   if (melds.length === 0) {
     const pairs = Object.values(counts).filter(v => v === 2).length;
     if (pairs === 7) return true;
     if (isKokushi(hand)) return true;
   }
+  
+  // 標準面子手
   for (const key in counts) {
-    if (counts[key] >= 2) {
+    if (counts[key] >= 2) { // 嘗試以此為雀頭
       const nextCounts = { ...counts };
       nextCounts[key] -= 2;
       if (canFormSets(nextCounts, 4 - melds.length)) return true;
@@ -120,16 +159,24 @@ export const getBestDiscard = (hand: Tile[], melds: Meld[], difficulty: number, 
     let score = 0;
     const tempHand = hand.filter((_, i) => i !== idx);
     const newShanten = calculateShanten(tempHand, melds);
+    
+    // 向聽數優化
     if (newShanten < currentShanten) score += 300;
     else if (newShanten === currentShanten) score += 100;
+    
+    // 進張廣度
     const waiters = getWaitingTiles(tempHand, melds);
     score += waiters.length * 50;
+    
+    // 防守邏輯
     if (isPlayerReach) {
       const isSafe = playerDiscards.some(d => d.type === targetTile.type && d.value === targetTile.value);
       if (isSafe) score += 1000;
       else if (isTerminalOrHonor(targetTile)) score += 300;
+    } else {
+        if (isTerminalOrHonor(targetTile)) score += 50;
     }
-    if (isTerminalOrHonor(targetTile) && playerDiscards.length < 6) score += 100;
+    
     return { idx, score };
   });
   results.sort((a, b) => b.score - a.score);
@@ -138,24 +185,25 @@ export const getBestDiscard = (hand: Tile[], melds: Meld[], difficulty: number, 
 
 export const shouldCPUCall = (hand: Tile[], melds: Meld[], tile: Tile, type: 'pon' | 'chi', difficulty: number): boolean => {
   const currentShanten = calculateShanten(hand, melds);
-  // 模擬鳴牌後的向聽數變化
-  const dummyTile = { ...tile, id: 'dummy' };
   let testHand: Tile[] = [];
   if (type === 'pon') {
-    testHand = hand.filter(t => t.type !== tile.type || t.value !== tile.value).slice(0, hand.length - 2);
+      let removed = 0;
+      testHand = hand.filter(t => {
+          if (removed < 2 && t.type === tile.type && t.value === tile.value) {
+              removed++;
+              return false;
+          }
+          return true;
+      });
   } else {
-    testHand = hand.slice(0, hand.length - 2);
+      testHand = hand.slice(0, hand.length - 2); 
   }
   
-  const newShanten = calculateShanten(testHand, [...melds, { type, tiles: [] }]);
-
-  if (currentShanten <= 0 && melds.length === 0) return false;
-
-  if (newShanten < currentShanten) {
-    const chance = 0.5 + (difficulty * 0.05);
-    return Math.random() < chance;
+  if (currentShanten > 0) {
+      const chance = 0.3 + (difficulty * 0.05);
+      if (type === 'pon' && tile.type === 'z' && tile.value >= 5) return true;
+      return Math.random() < chance;
   }
-  if (type === 'pon' && tile.type === 'z' && tile.value >= 5) return true;
   return false;
 };
 
@@ -181,7 +229,12 @@ export const calculateFinalScore = (hand: Tile[], melds: Meld[], isTsumo: boolea
 
   const dora = calculateDora(hand, melds, indicator);
   const totalFan = yaku.reduce((s, y) => s + y.fan, 0) + dora;
-  let fu = (yaku.some(y => y.name === '七對子')) ? 25 : (isTsumo ? 20 : 30);
+  
+  // 符數計算
+  let fu = 30;
+  if (yaku.some(y => y.name === '七對子')) fu = 25;
+  else if (yaku.some(y => y.name === '平和') && isTsumo) fu = 20;
+  else if (yaku.some(y => y.name === '平和') && !isTsumo) fu = 30;
 
   let points = 0;
   if (totalFan >= 13) points = 32000;
@@ -207,9 +260,11 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
   if (isReach) yaku.push({ name: '立直', fan: 1 });
   if (isTsumo && isMenzen) yaku.push({ name: '門前自摸', fan: 1 });
   if (allTiles.every(t => !isTerminalOrHonor(t))) yaku.push({ name: '斷么九', fan: 1 });
+  
   if (counts['z5'] >= 3) yaku.push({ name: '役牌：白', fan: 1 });
   if (counts['z6'] >= 3) yaku.push({ name: '役牌：發', fan: 1 });
   if (counts['z7'] >= 3) yaku.push({ name: '役牌：中', fan: 1 });
+  if (counts['z1'] >= 3) yaku.push({ name: '役牌：東', fan: 1 });
   
   const suits = new Set(allTiles.filter(t => t.type !== 'z').map(t => t.type));
   const hasHonor = allTiles.some(t => t.type === 'z');
@@ -217,9 +272,28 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
     if (!hasHonor) yaku.push({ name: '清一色', fan: isMenzen ? 6 : 5 });
     else yaku.push({ name: '混一色', fan: isMenzen ? 3 : 2 });
   }
-  if (isMenzen && Object.values(getCounts(hand)).filter(v => v === 2).length === 7) yaku.push({ name: '七對子', fan: 2 });
+  
+  if (isMenzen && Object.values(getCounts(hand)).filter(v => v === 2).length === 7) {
+      yaku.push({ name: '七對子', fan: 2 });
+  } else {
+      if (isMenzen) {
+          const handCounts = getCounts(hand);
+          const pairs = Object.keys(handCounts).filter(k => handCounts[k] >= 2);
+          let isPinfu = false;
+          for (const pairKey of pairs) {
+              const type = pairKey[0];
+              const val = parseInt(pairKey.slice(1));
+              const isYakuhaiHead = type === 'z' && (val >= 5 || val === 1); 
+              if (!isYakuhaiHead && isAllSequencesWithPair(handCounts, pairKey)) {
+                  isPinfu = true;
+                  break;
+              }
+          }
+          if (isPinfu) yaku.push({ name: '平和', fan: 1 });
+      }
+  }
+
   if (isKokushi(hand)) yaku.push({ name: '國士無雙', fan: 13 });
-  if (counts['z1'] >= 3) yaku.push({ name: '役牌：東', fan: 1 });
   
   return yaku;
 };

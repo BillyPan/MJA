@@ -12,13 +12,29 @@ interface MahjongGameProps {
   onCall: (action: keyof CallActions | 'PASS') => void;
 }
 
+// 名字簡化映射表
+const simplifyName = (name: string) => {
+  const map: Record<string, string> = {
+    "美雪老師": "美雪",
+    "麗奈老師": "麗奈",
+    "靜香主任": "靜香",
+    "優子老師": "優子",
+    "小藍老師": "小藍",
+    "佐和子老師": "佐和子",
+    "惠美院長": "惠美",
+    "神秘客": "神秘客",
+    "傳說中的畢業生": "畢業生"
+  };
+  return map[name] || name;
+};
+
 const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill, onTsumo, onCall }) => {
   const cpuRiverRef = useRef<HTMLDivElement>(null);
   const playerRiverRef = useRef<HTMLDivElement>(null);
 
-  // 強化自摸判定：必須是玩家回合且手牌為14張
+  // 強化自摸判定：必須是玩家回合且手牌為14張（含副露的邏輯為 mod 3 === 2）
   const canPlayerTsumo = useMemo(() => {
-    if (state.currentTurn !== 'player' || state.playerHand.length < 14) return false;
+    if (state.currentTurn !== 'player' || state.playerHand.length % 3 !== 2) return false;
     return calculateFinalScore(state.playerHand, state.playerMelds, true, state.isPlayerReach, state.doraIndicator) !== null;
   }, [state.playerHand, state.playerMelds, state.isPlayerReach, state.doraIndicator, state.currentTurn]);
 
@@ -30,41 +46,56 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
     if (playerRiverRef.current) playerRiverRef.current.scrollTop = playerRiverRef.current.scrollHeight;
   }, [state.playerDiscards.length]);
 
-  // 判定是否允許點擊手牌棄牌 (14張才能棄牌)
-  const canInteractWithHand = state.currentTurn === 'player' && !state.pendingCall && (state.playerHand.length === 14);
+  // 判定是否允許點擊手牌棄牌 (手牌數量模 3 餘 2 代表已摸牌)
+  const canInteractWithHand = state.currentTurn === 'player' && !state.pendingCall && (state.playerHand.length % 3 === 2);
+
+  // 取得當前顯示用的名字與訊息
+  const instructorName = state.selectedInstructor?.name || '';
+  const simplifiedName = simplifyName(instructorName);
+  const displayMessage = state.message.replace(instructorName, simplifiedName);
 
   return (
     <div className="w-full h-full flex flex-col bg-[#064e3b] border-[12px] border-[#2c1a10] relative shadow-inner overflow-hidden">
       {/* Top UI */}
-      <div className="h-40 flex-shrink-0 flex justify-between items-center px-10 bg-black/60 border-b-2 border-black/40 z-[100]">
-        <div className="flex items-center gap-6">
-          <div className="relative">
-            <img src={state.selectedInstructor?.avatar} className="w-24 h-24 rounded-full border-4 border-yellow-500 bg-white object-cover shadow-2xl" alt="CPU" />
+      <div className="h-40 flex-shrink-0 flex justify-between items-center px-6 bg-black/60 border-b-2 border-black/40 z-[100]">
+        
+        {/* Left: CPU Info & Hand */}
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <div className="relative flex-shrink-0">
+            <img src={state.selectedInstructor?.avatar} className="w-20 h-20 rounded-full border-4 border-yellow-500 bg-white object-cover shadow-2xl" alt="CPU" />
             <div className="absolute -bottom-2 -right-2 bg-red-600 text-white px-2 py-0.5 text-xs font-bold rounded border border-white">CPU</div>
           </div>
-          <div className="flex flex-col">
-            <div className="text-yellow-400 font-black text-2xl italic">{state.selectedInstructor?.name}</div>
-            <div className="text-white text-xl font-bold font-mono tracking-tighter">SCORE: {state.cpuScore}</div>
+          <div className="flex flex-col flex-shrink-0 mr-2 min-w-[80px]">
+            <div className="text-yellow-400 font-black text-2xl italic tracking-wider">{simplifiedName}</div>
+            <div className="text-white text-lg font-bold font-mono tracking-tighter">點數: {state.cpuScore}</div>
+          </div>
+          {/* CPU Hand */}
+          <div className="flex gap-0.5 ml-2 self-center scale-90 origin-left">
+             {state.cpuHand.map((_, i) => <div key={i} className="w-6 h-9 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400" />)}
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
-          <div className="bg-black/80 px-8 py-3 rounded-lg border-2 border-yellow-500/60 shadow-lg min-w-[350px] text-center">
-            <p className="text-yellow-400 text-lg font-black italic animate-pulse">「 {state.message} 」</p>
+        {/* Center: Message & Dora */}
+        <div className="flex items-center gap-6 flex-grow px-8 min-w-0">
+          {/* Message Box: Flex-grow to fill available space */}
+          <div className="bg-black/80 px-8 py-3 rounded-lg border-2 border-yellow-500/60 shadow-lg flex-grow w-full overflow-hidden text-center relative">
+            <p className="text-yellow-400 text-xl font-black italic animate-pulse whitespace-nowrap overflow-hidden text-ellipsis px-2">「 {displayMessage} 」</p>
           </div>
-          <div className="flex items-center gap-4 bg-red-950/40 px-6 py-2 rounded border border-red-500/30">
-            <div className="flex flex-col items-start leading-none">
-              <span className="text-red-500 font-black text-xs italic uppercase opacity-70">懸賞</span>
-              <span className="text-red-500 font-black text-sm italic">DORA</span>
+          {/* Compact Dora */}
+          <div className="flex flex-col items-center justify-center bg-red-950/40 px-3 py-1 rounded border border-red-500/30 flex-shrink-0">
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-red-500 font-black text-[10px] italic uppercase opacity-80">懸賞</span>
+              <span className="text-red-500 font-black text-xs italic">DORA</span>
             </div>
-            {state.doraIndicator && <MahjongTile tile={state.doraIndicator} size="xs" />}
+            {state.doraIndicator && <MahjongTile tile={state.doraIndicator} size="xs" className="scale-90 origin-top" />}
           </div>
         </div>
 
-        <div className="flex flex-col items-end min-w-[300px]">
-           <div className="text-white text-2xl font-black italic">PLAYER: {state.playerScore}</div>
-           <div className="flex gap-1 mt-2">
-             {state.cpuHand.map((_, i) => <div key={i} className="w-7 h-11 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400" />)}
+        {/* Right: Player Score */}
+        <div className="flex flex-col items-end min-w-[140px] flex-shrink-0">
+           <div className="text-yellow-500 text-xs font-black tracking-widest mb-1 opacity-80">玩家點數</div>
+           <div className="text-white text-4xl font-black font-mono tracking-tighter leading-none shadow-black drop-shadow-md">
+             {state.playerScore}
            </div>
         </div>
       </div>
@@ -72,7 +103,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
       {/* Rivers */}
       <div className="flex-grow flex items-center justify-around px-10 py-4 relative overflow-hidden">
         <div className="flex flex-col items-center gap-2 h-full max-h-[320px]">
-          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">對手河牌 {state.isCpuReach && <span className="text-orange-500 ml-2">[ 立直 ]</span>}</span>
+          <span className="text-white/40 font-bold text-xs uppercase tracking-widest">{simplifiedName}河牌 {state.isCpuReach && <span className="text-orange-500 ml-2">[ 立直 ]</span>}</span>
           <div ref={cpuRiverRef} className="flex-grow overflow-y-auto custom-scrollbar pr-1 max-w-[560px] scroll-smooth">
             <div className="grid grid-cols-12 gap-1 p-2 bg-black/30 rounded border border-white/10 h-fit">
               {state.cpuDiscards.map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)}
@@ -103,7 +134,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
             {state.pendingCall?.chi && <button onClick={() => onCall('chi')} className="bg-green-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-green-800">吃 CHI</button>}
             {state.pendingCall?.kan && <button onClick={() => onCall('kan')} className="bg-amber-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-amber-800">槓 KAN</button>}
             
-            {state.currentTurn === 'player' && state.playerHand.length === 14 && (
+            {state.currentTurn === 'player' && state.playerHand.length % 3 === 2 && (
               <>
                 <button onClick={() => onUseSkill('EXCHANGE')} disabled={state.playerEnergy < 30} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 30 ? 'bg-cyan-600 text-white border-cyan-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>換牌 (30 EP)</button>
                 {!state.isPlayerReach && <button onClick={() => onUseSkill('REACH')} disabled={state.playerEnergy < 20} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 20 ? 'bg-orange-600 text-white border-orange-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>立直 (20 EP)</button>}
@@ -122,7 +153,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
 
         <div className="flex items-end gap-2 px-10">
           {state.playerHand.map((tile, index) => {
-            const isDrawnTile = index === state.playerHand.length - 1 && state.playerHand.length === 14;
+            const isDrawnTile = index === state.playerHand.length - 1 && state.playerHand.length % 3 === 2;
             const lockTile = (state.isPlayerReach && !isDrawnTile) || !canInteractWithHand;
             return (
               <MahjongTile key={tile.id} tile={tile} onClick={() => canInteractWithHand && onDiscard(tile.id)} isLast={isDrawnTile} size="lg" className={lockTile ? "pointer-events-none opacity-50 grayscale scale-95 origin-bottom transition-all" : ""} />

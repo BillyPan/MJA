@@ -59,6 +59,7 @@ export interface GameState {
   pendingCall: CallActions | null;
   doraIndicator: Tile | null;
   isPlayerFuriten: boolean;
+  isWinAnimation: boolean; // New: Controls the Hu effect
 }
 
 export interface YakuResult {

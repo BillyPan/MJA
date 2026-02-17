@@ -1,4 +1,3 @@
-
 // ... (imports remain same)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
@@ -444,7 +443,7 @@ const App: React.FC = () => {
       // 移除扣能與檢查邏輯
       setGameState(prev => ({ ...prev, message: "宣告立直！" }));
 
-    } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 90) {
+    } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 100) {
       playSound('skill');
       
       const godHandData = generateGodHand();
@@ -452,7 +451,7 @@ const App: React.FC = () => {
       
       setGameState(prev => ({
         ...prev,
-        playerEnergy: prev.playerEnergy - 90,
+        playerEnergy: prev.playerEnergy - 100,
         playerHand: newHand,
         playerMelds: [],
         message: `絕技發動：${godHandData.yakuName}！`

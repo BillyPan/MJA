@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { GameState, Tile, CallActions, Meld } from '../types';
 import MahjongTile from './MahjongTile';
@@ -185,7 +184,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
               <>
                 {!state.isPlayerReach && <button onClick={() => onUseSkill('REACH')} className="bg-orange-600 text-white border-orange-800 px-6 py-1.5 font-black text-xl border-b-4">立直</button>}
                 <button onClick={() => onUseSkill('EXCHANGE')} disabled={state.playerEnergy < 30} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 30 ? 'bg-cyan-600 text-white border-cyan-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>換牌 (30 EP)</button>
-                <button onClick={() => onUseSkill('TSUMO')} disabled={state.playerEnergy < 90} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 90 ? 'bg-purple-600 text-white border-purple-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>絕技胡牌 (90 EP)</button>
+                <button onClick={() => onUseSkill('TSUMO')} disabled={state.playerEnergy < 100} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 100 ? 'bg-purple-600 text-white border-purple-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>絕技胡牌 (100 EP)</button>
               </>
             )}
 

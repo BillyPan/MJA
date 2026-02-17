@@ -28,6 +28,9 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
     if (playerRiverRef.current) playerRiverRef.current.scrollTop = playerRiverRef.current.scrollHeight;
   }, [state.playerDiscards.length]);
 
+  // 判定是否允許點擊手牌棄牌
+  const canInteractWithHand = state.currentTurn === 'player' && !state.pendingCall && (state.playerHand.length + state.playerMelds.length * 3 === 14);
+
   return (
     <div className="w-full h-full flex flex-col bg-[#064e3b] border-[12px] border-[#2c1a10] relative shadow-inner overflow-hidden">
       {/* Top UI */}
@@ -88,18 +91,15 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
       {/* Control Area */}
       <div className="h-[300px] flex-shrink-0 flex flex-col items-center justify-end pb-6 bg-gradient-to-t from-black/95 to-transparent">
         <div className="w-full flex justify-end px-16 gap-3 mb-4">
-          {/* 所有操作按鈕右靠 */}
           <div className="flex gap-3">
             {state.pendingCall?.ron && <button onClick={() => onCall('ron')} className="bg-red-700 text-white px-10 py-2 font-black text-2xl border-b-6 border-red-900 animate-bounce">榮和 RON</button>}
-            {canPlayerTsumo && state.currentTurn === 'player' && <button onClick={onTsumo} className="bg-yellow-500 text-black px-10 py-2 font-black text-2xl border-b-6 border-yellow-800 animate-bounce">自摸 TSUMO</button>}
+            {canPlayerTsumo && state.currentTurn === 'player' && (state.playerHand.length + state.playerMelds.length * 3 === 14) && <button onClick={onTsumo} className="bg-yellow-500 text-black px-10 py-2 font-black text-2xl border-b-6 border-yellow-800 animate-bounce">自摸 TSUMO</button>}
             
-            {/* Action Buttons */}
             {state.pendingCall?.pon && <button onClick={() => onCall('pon')} className="bg-blue-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-blue-800">碰 PON</button>}
             {state.pendingCall?.chi && <button onClick={() => onCall('chi')} className="bg-green-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-green-800">吃 CHI</button>}
             {state.pendingCall?.kan && <button onClick={() => onCall('kan')} className="bg-amber-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-amber-800">槓 KAN</button>}
             
-            {/* Skills */}
-            {state.currentTurn === 'player' && (
+            {state.currentTurn === 'player' && (state.playerHand.length + state.playerMelds.length * 3 === 14) && (
               <>
                 <button onClick={() => onUseSkill('EXCHANGE')} disabled={state.playerEnergy < 30} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 30 ? 'bg-cyan-600 text-white border-cyan-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>換牌 (30 EP)</button>
                 {!state.isPlayerReach && <button onClick={() => onUseSkill('REACH')} disabled={state.playerEnergy < 20} className={`px-6 py-1.5 font-black text-xl border-b-4 ${state.playerEnergy >= 20 ? 'bg-orange-600 text-white border-orange-800' : 'bg-zinc-800 text-zinc-600 opacity-50'}`}>立直 (20 EP)</button>}
@@ -107,7 +107,6 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
               </>
             )}
 
-            {/* 過 PASS 按鈕在最右邊 */}
             {state.pendingCall && <button onClick={() => onCall('PASS')} className="bg-zinc-700 text-white px-6 py-1.5 font-black text-xl border-b-4 border-zinc-900">過 PASS</button>}
           </div>
         </div>
@@ -120,9 +119,9 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
         <div className="flex items-end gap-2 px-10">
           {state.playerHand.map((tile, index) => {
             const isDrawnTile = index === state.playerHand.length - 1 && (state.playerHand.length + state.playerMelds.length * 3) >= 14;
-            const lockTile = state.isPlayerReach && !isDrawnTile;
+            const lockTile = (state.isPlayerReach && !isDrawnTile) || !canInteractWithHand;
             return (
-              <MahjongTile key={tile.id} tile={tile} onClick={() => onDiscard(tile.id)} isLast={isDrawnTile} size="lg" className={lockTile ? "pointer-events-none opacity-50 brightness-50" : ""} />
+              <MahjongTile key={tile.id} tile={tile} onClick={() => canInteractWithHand && onDiscard(tile.id)} isLast={isDrawnTile} size="lg" className={lockTile ? "pointer-events-none opacity-50 grayscale" : ""} />
             );
           })}
           {state.playerMelds.length > 0 && (

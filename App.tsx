@@ -61,8 +61,8 @@ const App: React.FC = () => {
     const doraIndicator = deck.pop()!;
     setIsPendingReach(false);
 
-    setGameState({
-      ...gameState,
+    setGameState(prev => ({
+      ...prev,
       phase: GamePhase.PLAYING,
       selectedInstructor: instructor,
       deck,
@@ -74,7 +74,7 @@ const App: React.FC = () => {
       playerDiscards: [],
       cpuDiscards: [],
       currentTurn: 'player',
-      playerEnergy: pEnergy,
+      playerEnergy: Math.min(100, pEnergy + 10),
       playerScore: pScore,
       cpuScore: cScore,
       isPlayerReach: false,
@@ -82,7 +82,9 @@ const App: React.FC = () => {
       isPlayerFuriten: false,
       winningHand: undefined,
       message: `${instructor.name}：請多指教囉！`,
-    });
+      pendingCall: null,
+      lastDiscardTile: null,
+    }));
     setTimeout(() => playerDraw(), 800);
   };
 
@@ -95,7 +97,14 @@ const App: React.FC = () => {
       const newHand = [...prev.playerHand, drawn];
       
       const kanTile = checkOwnTurnKan(newHand, prev.playerMelds);
-      const calls: CallActions = { ron: false, pon: false, chi: false, kan: !!kanTile };
+      const canTsumo = checkWin(newHand, prev.playerMelds);
+      
+      const calls: CallActions = { 
+        ron: false, 
+        pon: false, 
+        chi: false, 
+        kan: !!kanTile 
+      };
 
       return {
         ...prev,
@@ -103,14 +112,19 @@ const App: React.FC = () => {
         playerHand: newHand,
         currentTurn: 'player',
         pendingCall: calls.kan ? calls : null,
-        lastDiscardTile: kanTile // 借用此欄位存可執行槓的牌
+        lastDiscardTile: kanTile,
+        message: canTsumo ? "可以自摸囉！" : prev.message
       };
     });
   };
 
   const handlePlayerDiscard = (tileId: string) => {
     setGameState(prev => {
-      if (prev.currentTurn !== 'player' || prev.phase !== GamePhase.PLAYING) return prev;
+      const totalTiles = prev.playerHand.length + prev.playerMelds.length * 3;
+      if (prev.currentTurn !== 'player' || prev.phase !== GamePhase.PLAYING || prev.pendingCall || totalTiles !== 14) {
+        return prev;
+      }
+
       const tileIndex = prev.playerHand.findIndex(t => t.id === tileId);
       if (tileIndex === -1) return prev;
 
@@ -128,7 +142,6 @@ const App: React.FC = () => {
       const waiting = getWaitingTiles(newHand, prev.playerMelds);
       const isNowFuriten = isFuriten(updatedDiscards, waiting);
 
-      // CPU 榮和判斷
       if (checkWin([...prev.cpuHand, discarded], prev.cpuMelds)) {
         const win = calculateFinalScore([...prev.cpuHand, discarded], prev.cpuMelds, false, prev.isCpuReach, prev.doraIndicator, true);
         if (win) {
@@ -162,11 +175,11 @@ const App: React.FC = () => {
   const cpuTurn = () => {
     setGameState(prev => {
       if (prev.deck.length === 0) return { ...prev, phase: GamePhase.RESULT, message: "流局！" };
+      
       const newDeck = [...prev.deck];
       const drawn = newDeck.pop()!;
       const fullHand = sortHand([...prev.cpuHand, drawn]);
 
-      // CPU 自摸判定
       const winResult = calculateFinalScore(fullHand, prev.cpuMelds, true, prev.isCpuReach, prev.doraIndicator, true);
       if (winResult) {
         playSound('win');
@@ -195,7 +208,9 @@ const App: React.FC = () => {
       };
 
       const hasAnyCall = Object.values(calls).some(v => v);
-      if (!hasAnyCall) setTimeout(() => playerDraw(), 1000);
+      if (!hasAnyCall) {
+        setTimeout(() => playerDraw(), 1000);
+      }
 
       return {
         ...prev,
@@ -204,7 +219,7 @@ const App: React.FC = () => {
         cpuDiscards: [...prev.cpuDiscards, discarded],
         lastDiscardTile: discarded,
         pendingCall: hasAnyCall ? calls : null,
-        currentTurn: hasAnyCall ? 'player' : 'cpu'
+        currentTurn: 'cpu',
       };
     });
   };
@@ -212,23 +227,41 @@ const App: React.FC = () => {
   const handleCall = (action: keyof CallActions | 'PASS') => {
     if (action === 'PASS') {
       setGameState(prev => ({ ...prev, pendingCall: null }));
-      if (gameState.currentTurn === 'cpu') playerDraw();
+      if (gameState.currentTurn === 'cpu') {
+        playerDraw();
+      }
       return;
     }
 
     const tile = gameState.lastDiscardTile!;
+    
     if (action === 'ron') {
-      const result = calculateFinalScore([...gameState.playerHand, tile], gameState.playerMelds, false, gameState.isPlayerReach, gameState.doraIndicator);
+      let finalHand: Tile[] = [];
+      let isTsumo = false;
+
+      if (gameState.playerHand.length + gameState.playerMelds.length * 3 === 14) {
+        finalHand = [...gameState.playerHand];
+        isTsumo = true;
+      } else {
+        finalHand = [...gameState.playerHand, tile];
+        isTsumo = false;
+      }
+
+      const result = calculateFinalScore(finalHand, gameState.playerMelds, isTsumo, gameState.isPlayerReach, gameState.doraIndicator);
+      
       if (result) {
         playSound('win');
-        if (gameState.selectedInstructor && (gameState.cpuScore - result.points < 0)) saveProgress(gameState.selectedInstructor.id);
+        const cpuNewScore = gameState.cpuScore - result.points;
+        if (gameState.selectedInstructor && cpuNewScore <= 0) {
+          saveProgress(gameState.selectedInstructor.id);
+        }
         setGameState(prev => ({
           ...prev,
           phase: GamePhase.RESULT,
           playerScore: prev.playerScore + result.points,
-          cpuScore: prev.cpuScore - result.points,
+          cpuScore: cpuNewScore,
           winningHand: { ...result, winner: 'player' },
-          message: "榮和！"
+          message: isTsumo ? "自摸！和牌！" : "榮和！和牌！"
         }));
       }
       return;
@@ -249,7 +282,6 @@ const App: React.FC = () => {
         const v = tile.value, t = tile.type;
         const find = (val: number) => newHand.find(x => x.type === t && x.value === val);
         let pair: Tile[] = [];
-        // 簡單邏輯：先找一種組合
         if (find(v-1) && find(v+1)) pair = [find(v-1)!, find(v+1)!];
         else if (find(v-2) && find(v-1)) pair = [find(v-2)!, find(v-1)!];
         else if (find(v+1) && find(v+2)) pair = [find(v+1)!, find(v+2)!];
@@ -257,9 +289,7 @@ const App: React.FC = () => {
         meldTiles = [...pair, tile];
         newMelds.push({ type: 'chi', tiles: meldTiles });
       } else if (action === 'kan') {
-        // 處理三種槓：大明槓(3+1), 暗槓(4), 加槓(1 to Pon)
         const matchingInHand = newHand.filter(t => t.type === tile.type && t.value === tile.value);
-        
         if (matchingInHand.length === 4) { // 暗槓
           newHand = newHand.filter(t => !matchingInHand.includes(t));
           meldTiles = matchingInHand;
@@ -275,7 +305,6 @@ const App: React.FC = () => {
             newHand = newHand.filter(t => t.id !== tile.id);
           }
         }
-        // 槓牌後必須「嶺上補牌」，直接進入補牌邏輯
         setTimeout(() => playerDraw(), 500);
         return {
           ...prev,
@@ -283,7 +312,7 @@ const App: React.FC = () => {
           playerMelds: newMelds,
           pendingCall: null,
           currentTurn: 'player',
-          message: "槓！"
+          message: "槓！嶺上補牌！"
         };
       }
 
@@ -305,9 +334,23 @@ const App: React.FC = () => {
       setGameState(prev => ({ ...prev, playerEnergy: prev.playerEnergy - 20, message: "宣告立直！" }));
     } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 90) {
       playSound('skill');
-      const winTile = gameState.deck.find(d => checkWin([...gameState.playerHand, d], gameState.playerMelds));
-      if (winTile) {
-        const res = calculateFinalScore(sortHand([...gameState.playerHand, winTile]), gameState.playerMelds, true, gameState.isPlayerReach, gameState.doraIndicator)!;
+      let finalHand: Tile[] = [];
+      const currentHandSize = gameState.playerHand.length + gameState.playerMelds.length * 3;
+      
+      if (currentHandSize === 14) {
+        if (checkWin(gameState.playerHand, gameState.playerMelds)) {
+          finalHand = [...gameState.playerHand];
+        } else {
+          const winTile = gameState.deck.find(d => checkWin([...gameState.playerHand.slice(0, -1), d], gameState.playerMelds));
+          if (winTile) finalHand = sortHand([...gameState.playerHand.slice(0, -1), winTile]);
+        }
+      } else if (currentHandSize === 13) {
+        const winTile = gameState.deck.find(d => checkWin([...gameState.playerHand, d], gameState.playerMelds));
+        if (winTile) finalHand = sortHand([...gameState.playerHand, winTile]);
+      }
+
+      if (finalHand.length === 14) {
+        const res = calculateFinalScore(finalHand, gameState.playerMelds, true, gameState.isPlayerReach, gameState.doraIndicator)!;
         setGameState(prev => ({
           ...prev,
           playerEnergy: prev.playerEnergy - 90,
@@ -335,6 +378,21 @@ const App: React.FC = () => {
     }
   };
 
+  const handleNextRound = () => {
+    if (!gameState.selectedInstructor) {
+      setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }));
+      return;
+    }
+
+    if (gameState.cpuScore <= 0) {
+      setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }));
+    } else if (gameState.playerScore <= 0) {
+      setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT, playerScore: 25000, cpuScore: 25000 }));
+    } else {
+      startNewRound(gameState.selectedInstructor, gameState.playerScore, gameState.cpuScore, gameState.playerEnergy);
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-black overflow-hidden serif-font">
       {gameState.phase === GamePhase.INTRO && (
@@ -351,7 +409,7 @@ const App: React.FC = () => {
           <div className="grid grid-cols-3 gap-10 max-w-6xl mx-auto overflow-y-auto max-h-[80vh] pr-4 custom-scrollbar">
             {INSTRUCTORS.map(inst => (
               <div key={inst.id} onClick={() => startNewRound(inst, 25000, 25000, 100)} className="bg-zinc-900 border-4 border-zinc-700 p-6 flex flex-col items-center cursor-pointer hover:border-white transform hover:scale-105 transition-all">
-                {graduatedIds.includes(inst.id) && <div className="text-yellow-500 font-black mb-2">GRADUATED</div>}
+                {graduatedIds.includes(inst.id) && <div className="text-yellow-500 font-black mb-2 bg-yellow-900/50 px-4 py-1 rounded-full border border-yellow-500 animate-pulse">GRADUATED</div>}
                 <img src={inst.avatar} className="w-48 h-48 object-cover mb-4 rounded" />
                 <h3 className="text-2xl text-white font-bold">{inst.name}</h3>
                 <p className="text-zinc-500 text-sm text-center">{inst.description}</p>
@@ -367,17 +425,40 @@ const App: React.FC = () => {
 
       {gameState.phase === GamePhase.RESULT && (
         <div className="fixed inset-0 bg-black/95 z-[200] flex flex-col items-center justify-center p-10">
-          <h2 className={`text-9xl font-black mb-6 ${gameState.winningHand?.winner === 'player' ? 'text-yellow-500' : 'text-red-600'}`}>
+          <div className="absolute top-10 left-10 flex gap-10">
+             <div className="text-white text-3xl font-black">PLAYER: <span className="text-yellow-500">{gameState.playerScore}</span></div>
+             <div className="text-white text-3xl font-black italic">VS</div>
+             <div className="text-white text-3xl font-black">CPU: <span className="text-red-500">{gameState.cpuScore}</span></div>
+          </div>
+          
+          <h2 className={`text-9xl font-black mb-6 drop-shadow-lg ${gameState.winningHand?.winner === 'player' ? 'text-yellow-500 animate-bounce' : 'text-red-600'}`}>
             {gameState.winningHand ? (gameState.winningHand.winner === 'player' ? '和了' : '被胡牌') : '流局'}
           </h2>
-          <div className="flex gap-2 mb-10 overflow-x-auto max-w-full">
-            {gameState.winningHand?.hand.map(t => <MahjongTile key={t.id} tile={t} size="md" />)}
+
+          <div className="flex gap-2 mb-10 overflow-x-auto max-w-full bg-white/5 p-6 rounded-xl border border-white/10">
+            {gameState.winningHand?.hand.map(t => <MahjongTile key={t.id} tile={t} size="md" className="pointer-events-none" />)}
+            {gameState.winningHand?.melds.map(m => m.tiles.map(t => <MahjongTile key={t.id} tile={t} size="sm" className="pointer-events-none opacity-80" />))}
           </div>
-          <div className="text-center mb-10">
-            {gameState.winningHand?.yaku.map(y => <div key={y.name} className="text-yellow-400 text-3xl font-bold">{y.name} {y.fan}番</div>)}
-            <div className="text-white text-6xl font-black mt-6">{gameState.winningHand?.fu}符 {gameState.winningHand?.fan}番：{gameState.winningHand?.points}點</div>
+
+          <div className="text-center mb-10 min-h-[120px]">
+            {gameState.winningHand?.yaku.map(y => (
+              <div key={y.name} className={`text-4xl font-black italic mb-2 ${y.name.includes('懸賞') ? 'text-orange-400' : 'text-yellow-400'}`}>
+                {y.name} {y.fan}番
+              </div>
+            ))}
+            {gameState.winningHand && (
+              <div className="text-white text-6xl font-black mt-6 border-t-2 border-white/20 pt-4">
+                {gameState.winningHand.fu}符 {gameState.winningHand.fan}番：{gameState.winningHand.points}點
+              </div>
+            )}
           </div>
-          <button onClick={() => setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }))} className="bg-yellow-600 text-black px-20 py-4 text-3xl font-black">NEXT ROUND</button>
+
+          <button 
+            onClick={handleNextRound} 
+            className="bg-red-700 hover:bg-red-600 text-white px-20 py-6 text-4xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all"
+          >
+            {gameState.cpuScore <= 0 ? '挑戰成功：下一位老師' : 'NEXT ROUND'}
+          </button>
         </div>
       )}
     </div>

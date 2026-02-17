@@ -55,13 +55,15 @@ const App: React.FC = () => {
   useEffect(() => {
     if (gameState.isWinAnimation) {
       playSound('win');
+      // 老師胡牌停留4秒，玩家胡牌停留2.5秒
+      const delay = gameState.winningHand?.winner === 'cpu' ? 4000 : 2500;
       const timer = setTimeout(() => {
         setGameState(prev => ({
           ...prev,
           phase: GamePhase.RESULT,
           isWinAnimation: false
         }));
-      }, 2500); // 停留約 2.5 秒
+      }, delay); 
       return () => clearTimeout(timer);
     }
   }, [gameState.isWinAnimation]);

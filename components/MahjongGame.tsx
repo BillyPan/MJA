@@ -2,7 +2,7 @@
 import React, { useMemo, useEffect, useRef } from 'react';
 import { GameState, Tile, CallActions, Meld } from '../types';
 import MahjongTile from './MahjongTile';
-import { calculateFinalScore } from '../services/mahjongEngine';
+import { calculateFinalScore, sortHand } from '../services/mahjongEngine';
 
 interface MahjongGameProps {
   state: GameState;
@@ -54,6 +54,9 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
   const simplifiedName = simplifyName(instructorName);
   const displayMessage = state.message.replace(instructorName, simplifiedName);
 
+  // 判斷是否顯示 CPU 胡牌手牌
+  const isCpuWinReveal = state.isWinAnimation && state.winningHand?.winner === 'cpu';
+
   return (
     <div className="w-full h-full flex flex-col bg-[#064e3b] border-[12px] border-[#2c1a10] relative shadow-inner overflow-hidden">
       {/* Top UI */}
@@ -70,8 +73,14 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
             <div className="text-white text-lg font-bold font-mono tracking-tighter">點數: {state.cpuScore}</div>
           </div>
           {/* CPU Hand */}
-          <div className="flex gap-0.5 ml-2 self-center scale-90 origin-left">
-             {state.cpuHand.map((_, i) => <div key={i} className="w-6 h-9 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400" />)}
+          <div className={`flex gap-0.5 ml-2 self-center origin-left transition-all duration-500 ${isCpuWinReveal ? 'scale-[0.6]' : 'scale-90'}`}>
+             {isCpuWinReveal && state.winningHand ? (
+                // Reveal winning hand tiles
+                sortHand(state.winningHand.hand).map((t, i) => <MahjongTile key={i} tile={t} size="xs" />)
+             ) : (
+                // Hidden hand
+                state.cpuHand.map((_, i) => <div key={i} className="w-6 h-9 bg-zinc-200 rounded-sm shadow-md border-b-4 border-zinc-400" />)
+             )}
           </div>
         </div>
 

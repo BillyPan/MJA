@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Tile } from '../types';
 import { getTileImageUrl } from '../constants';
@@ -19,12 +18,12 @@ const MahjongTile: React.FC<MahjongTileProps> = ({ tile, onClick, isLast, size =
   // xs: ~44x63 (for 24 tiles per row in pond)
   // sm: ~50x72
   // md: ~72x101
-  // lg: ~86x122
+  // lg: Reduced from ~86px to ~76px to fit 1280px width on mobile scaler
   const sizeClasses = {
     xs: 'w-[44px] h-[63px]',
     sm: 'w-[50px] h-[72px]',
     md: 'w-[72px] h-[101px]',
-    lg: 'w-[86px] h-[122px]'
+    lg: 'w-[76px] h-[108px]'
   };
 
   return (

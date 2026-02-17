@@ -714,7 +714,7 @@ const App: React.FC = () => {
                     <div className="text-center flex flex-col items-center justify-center h-full w-full">
                     <div className="flex flex-col items-center">
                         <h1 className="text-9xl font-black mb-4 text-yellow-500 italic drop-shadow-[0_0_20px_rgba(234,179,8,0.5)]">麻雀學園</h1>
-                        <h2 className="text-6xl text-white tracking-[0.5em] border-y-2 py-4 w-full text-center">畢業篇</h2>
+                        <h2 className="text-6xl text-white tracking-[0.5em] border-y-2 py-4 w-full text-center">卒業篇</h2>
                     </div>
                     <div className="flex flex-col items-center mt-20">
                         <button onClick={() => setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }))} className="bg-red-700 text-white px-12 py-4 text-3xl font-black animate-pulse shadow-[0_0_20px_rgba(185,28,28,0.5)]">INSERT COIN</button>
@@ -724,14 +724,14 @@ const App: React.FC = () => {
                 )}
 
                 {gameState.phase === GamePhase.SELECT_OPPONENT && (
-                    <div className="w-full h-full p-10 bg-[#1a1a1a] overflow-hidden relative flex flex-col">
-                    <h2 className="text-4xl text-white font-black mb-8 border-b-4 border-yellow-600 pb-4 flex justify-between items-center flex-shrink-0">
+                    <div className="w-full h-full p-6 bg-[#1a1a1a] overflow-hidden relative flex flex-col">
+                    <h2 className="text-4xl text-white font-black mb-6 border-b-4 border-yellow-600 pb-4 flex justify-between items-center flex-shrink-0">
                         老師選擇
                         <span className="text-xl text-zinc-500 font-normal">請選擇畢業考對象</span>
                     </h2>
-                    <div className="grid grid-cols-3 gap-10 max-w-6xl mx-auto overflow-y-auto max-h-[80vh] pr-4 custom-scrollbar p-4 flex-grow">
+                    <div className="grid grid-cols-3 gap-10 max-w-6xl mx-auto overflow-y-auto pr-4 custom-scrollbar p-4 flex-1 min-h-0">
                         {INSTRUCTORS.map(inst => (
-                        <div key={inst.id} onClick={() => startNewRound(inst, 25000, 25000 + (inst.id - 1) * 5000, 100)} className="group bg-zinc-900 border-4 border-zinc-700 p-6 flex flex-col items-center cursor-pointer hover:border-yellow-500 transform hover:scale-105 transition-all relative overflow-hidden">
+                        <div key={inst.id} onClick={() => startNewRound(inst, 25000, 25000 + (inst.id - 1) * 5000, 100)} className="group bg-zinc-900 border-4 border-zinc-700 p-2 flex flex-col items-center cursor-pointer hover:border-yellow-500 transform hover:scale-105 transition-all relative overflow-hidden flex-shrink-0 shadow-xl">
                             {graduatedIds.includes(inst.id) && (
                             <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none select-none">
                                 <div className="relative flex flex-col items-center animate-stamp">
@@ -743,13 +743,15 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                             )}
-                            <img src={inst.avatar} className={`w-48 h-48 object-cover mb-4 rounded border-2 border-zinc-500 group-hover:border-yellow-500 shadow-lg ${graduatedIds.includes(inst.id) ? 'grayscale opacity-30' : ''}`} />
-                            <h3 className={`text-2xl font-bold ${graduatedIds.includes(inst.id) ? 'text-zinc-600' : 'text-white'}`}>{inst.name}</h3>
-                            <p className="text-zinc-500 text-sm text-center mt-2 h-10 overflow-hidden">{inst.description}</p>
-                            <div className="mt-4 flex gap-1">
-                            {Array.from({length: 9}).map((_, i) => (
-                                <div key={i} className={`w-3 h-3 rotate-45 ${i < inst.difficulty ? 'bg-yellow-600' : 'bg-zinc-800'}`} />
-                            ))}
+                            
+                            {/* Modified Image Section with Name Overlay - Removed description and stars */}
+                            <div className="relative w-full h-[400px] bg-zinc-800 rounded border border-zinc-600 group-hover:border-yellow-500 overflow-hidden">
+                                <img src={inst.avatar} className={`w-full h-full object-cover object-[50%_25%] ${graduatedIds.includes(inst.id) ? 'grayscale opacity-30' : ''}`} />
+                                <div className="absolute bottom-0 left-0 w-full pb-3 pt-12 bg-gradient-to-t from-white/90 via-white/50 to-transparent">
+                                    <h3 className={`text-4xl font-black text-center w-full truncate relative z-10 ${graduatedIds.includes(inst.id) ? 'text-zinc-600' : 'text-black'}`} style={graduatedIds.includes(inst.id) ? {} : { textShadow: '2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff' }}>
+                                        {inst.name}
+                                    </h3>
+                                </div>
                             </div>
                         </div>
                         ))}

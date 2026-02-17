@@ -206,7 +206,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
           </div>
         </div>
 
-        <div className="flex items-end gap-2 px-10">
+        <div className="flex items-end justify-center w-full px-4 gap-0">
           {state.playerHand.map((tile, index) => {
             const isDrawnTile = index === state.playerHand.length - 1 && state.playerHand.length % 3 === 2;
             const lockTile = (state.isPlayerReach && !isDrawnTile) || !canInteractWithHand;
@@ -215,9 +215,9 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
             );
           })}
           {state.playerMelds.length > 0 && (
-            <div className="flex gap-2 ml-6">
+            <div className="flex gap-1 ml-4">
               {state.playerMelds.map((meld, i) => (
-                <div key={i} className="flex gap-0.5 bg-black/40 p-2 rounded-t-lg border-x border-t border-white/10 shadow-lg">
+                <div key={i} className="flex gap-0.5 bg-black/40 p-2 rounded-t-lg border-x border-t border-white/10 shadow-lg scale-90 origin-bottom">
                   {meld.tiles.map(t => <MahjongTile key={t.id} tile={t} size="sm" />)}
                 </div>
               ))}

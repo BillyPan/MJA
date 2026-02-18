@@ -36,155 +36,312 @@ const createTile = (type: TileType, value: number, idSuffix: string): Tile => ({
   value
 });
 
-// 內部使用：生成役滿 (給玩家用，或 CPU 不受限時使用)
-const generateYakuman = (): { hand: Tile[], yakuName: string, fan: number } => {
+// 生成天照大神 (Amaterasu) 的超級牌型
+export const generateAmaterasuHand = (): WinningResult => {
+    // 定義各種超級牌型
+    const scenarios = [
+        // 1. 天和九蓮寶燈 (雙倍役滿)
+        {
+            name: '天和九蓮寶燈',
+            setup: () => {
+                const hand: Tile[] = [];
+                // 1112345678999m + 9m
+                [1,1,1,2,3,4,5,6,7,8,9,9,9].forEach((v, i) => hand.push(createTile('m', v, `chuuren-${i}`)));
+                hand.push(createTile('m', 9, 'tsumo'));
+                return { hand, melds: [] };
+            },
+            yaku: [
+                { name: '天照大神·天和', fan: 13 },
+                { name: '純正九蓮寶燈', fan: 26 },
+                { name: '雙倍役滿', fan: 26 }
+            ],
+            points: 128000,
+            fan: 65,
+            fu: 100
+        },
+        // 2. 140符 105番 (字一色、三暗刻、四槓子、役牌4、嶺上開花、寶牌72)
+        // 牌型構造：4個槓子 (白發中北) + 西(雀頭)
+        {
+            name: '百五番繚亂',
+            setup: () => {
+                const hand: Tile[] = [];
+                const melds: Meld[] = [];
+                // 為了視覺效果，我們把槓子放入 melds
+                // 白板槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('z', 5, `k1-${i}`)) });
+                // 發財槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('z', 6, `k2-${i}`)) });
+                // 紅中槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('z', 7, `k3-${i}`)) });
+                // 北風槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('z', 4, `k4-${i}`)) });
+                
+                // 單騎聽牌：西風
+                hand.push(createTile('z', 3, 'pair-1'));
+                hand.push(createTile('z', 3, 'tsumo'));
+                
+                return { hand, melds };
+            },
+            yaku: [
+                { name: '天照大神·字一色', fan: 13 },
+                { name: '四槓子', fan: 13 },
+                { name: '三暗刻', fan: 2 },
+                { name: '役牌 4', fan: 4 },
+                { name: '嶺上開花', fan: 1 },
+                { name: '寶牌 72', fan: 72 }
+            ],
+            points: 999999, // 視覺極限
+            fan: 105,
+            fu: 140
+        },
+        // 3. 宇宙創生 (2.19e34點)
+        // 立直，一发，海底摸月，自摸，断幺九，清一色，绿一色，四暗刻单骑，四杠子，宝牌40
+        // 牌型：綠一色四槓子 (23468s + 發)
+        // 構造：發槓、8s槓、6s槓、4s槓、2s單騎
+        {
+            name: '宇宙創生',
+            setup: () => {
+                const hand: Tile[] = [];
+                const melds: Meld[] = [];
+                // 6z 槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('z', 6, `k1-${i}`)) });
+                // 8s 槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('s', 8, `k2-${i}`)) });
+                // 6s 槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('s', 6, `k3-${i}`)) });
+                // 4s 槓
+                melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('s', 4, `k4-${i}`)) });
+                
+                // 2s 單騎
+                hand.push(createTile('s', 2, 'pair'));
+                hand.push(createTile('s', 2, 'tsumo'));
+
+                return { hand, melds };
+            },
+            yaku: [
+                { name: '天照大神·雙立直', fan: 2 },
+                { name: '一發', fan: 1 },
+                { name: '海底摸月', fan: 1 },
+                { name: '門前清自摸', fan: 1 },
+                { name: '斷么九', fan: 1 },
+                { name: '清一色', fan: 6 },
+                { name: '綠一色', fan: 13 },
+                { name: '四暗刻單騎', fan: 26 },
+                { name: '四槓子', fan: 13 },
+                { name: '寶牌 40', fan: 40 }
+            ],
+            points: 2190500237194380, // JS Number max safe int approx 9e15, we use a big number. Real number 2e34 is too big for types
+            fan: 103,
+            fu: 90
+        },
+        // 4. 清一色三暗刻四槓子
+        {
+            name: '清一色連鎖',
+            setup: () => {
+                 const hand: Tile[] = [];
+                 const melds: Meld[] = [];
+                 // 1m Kan, 3m Kan, 5m Kan, 7m Kan, 9m Pair
+                 [1, 3, 5, 7].forEach((v, idx) => {
+                     melds.push({ type: 'kan', isClosed: true, tiles: Array(4).fill(null).map((_,i) => createTile('m', v, `k${idx}-${i}`)) });
+                 });
+                 hand.push(createTile('m', 9, 'p'));
+                 hand.push(createTile('m', 9, 'tsumo'));
+                 return { hand, melds };
+            },
+            yaku: [
+                { name: '天照大神·清一色', fan: 6 },
+                { name: '三暗刻', fan: 2 },
+                { name: '四槓子', fan: 13 },
+                { name: '對對和', fan: 2 },
+                { name: '寶牌 20', fan: 20 }
+            ],
+            points: 168000,
+            fan: 43,
+            fu: 70
+        },
+        // 5. 四暗刻大三元
+        {
+            name: '白發中繚亂',
+            setup: () => {
+                const hand: Tile[] = [];
+                // 白刻、發刻、中刻、東刻、西雀頭
+                [5,6,7,1].forEach((v, idx) => {
+                     for(let i=0; i<3; i++) hand.push(createTile('z', v, `tri-${idx}-${i}`));
+                });
+                hand.push(createTile('z', 3, 'p1'));
+                hand.push(createTile('z', 3, 'tsumo')); // 單騎
+                return { hand: sortHand(hand), melds: [] };
+            },
+            yaku: [
+                { name: '天照大神·大三元', fan: 13 },
+                { name: '四暗刻單騎', fan: 26 },
+                { name: '字一色', fan: 13 },
+                { name: '役牌 4', fan: 4 }
+            ],
+            points: 192000,
+            fan: 56,
+            fu: 60
+        }
+    ];
+
+    const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
+    const { hand, melds } = scenario.setup();
+
+    return {
+        winner: 'player',
+        yaku: scenario.yaku,
+        doraCount: 0, // Yaku handles dora display
+        fan: scenario.fan,
+        fu: scenario.fu,
+        points: scenario.points,
+        hand,
+        melds,
+        isTsumo: true
+    };
+};
+
+// 生成役滿 (給玩家用，或 CPU 不受限時使用)
+export const generateSpecialHand = (limitScore?: number): { hand: Tile[], yakuName: string, fan: number } => {
   const yakumanTypes = [
     'Kokushi', 'Chuuren', 'Daisangen', 'Suuankou', 'Tsuuisa', 'Ryuuiisou', 
     'Chinroutou', 'Daisuushii', 'Shousuushii' 
   ];
   
-  const selectedType = yakumanTypes[Math.floor(Math.random() * yakumanTypes.length)];
-  let hand: Tile[] = [];
-  let name = '';
-  let fan = 13;
+  // 如果有限制分數，且限制分數低於役滿標準 (32000)，則不生成役滿
+  if (limitScore === undefined || limitScore >= 32000) {
+      const selectedType = yakumanTypes[Math.floor(Math.random() * yakumanTypes.length)];
+      let hand: Tile[] = [];
+      let name = '';
+      let fan = 13;
 
-  const getSuuankouShape = () => {
-     const tiles: Tile[] = [];
-     const chosen: string[] = [];
-     while(chosen.length < 5) {
-        const t = ['m','p','s','z'][Math.floor(Math.random()*4)] as TileType;
-        const v = t === 'z' ? Math.ceil(Math.random()*7) : Math.ceil(Math.random()*9);
-        const k = `${t}${v}`;
-        if (!chosen.includes(k)) chosen.push(k);
-     }
-     chosen.forEach((k, idx) => {
-         const type = k[0] as TileType;
-         const val = parseInt(k.slice(1));
-         const count = idx < 4 ? 3 : 2;
-         for(let i=0; i<count; i++) tiles.push(createTile(type, val, `${idx}-${i}`));
-     });
-     return tiles;
-  };
+      const getSuuankouShape = () => {
+         const tiles: Tile[] = [];
+         const chosen: string[] = [];
+         while(chosen.length < 5) {
+            const t = ['m','p','s','z'][Math.floor(Math.random()*4)] as TileType;
+            const v = t === 'z' ? Math.ceil(Math.random()*7) : Math.ceil(Math.random()*9);
+            const k = `${t}${v}`;
+            if (!chosen.includes(k)) chosen.push(k);
+         }
+         chosen.forEach((k, idx) => {
+             const type = k[0] as TileType;
+             const val = parseInt(k.slice(1));
+             const count = idx < 4 ? 3 : 2;
+             for(let i=0; i<count; i++) tiles.push(createTile(type, val, `${idx}-${i}`));
+         });
+         return tiles;
+      };
 
-  switch (selectedType) {
-    case 'Kokushi':
-      name = '國士無雙';
-      const terminals = [
-        {t:'m',v:1}, {t:'m',v:9}, {t:'p',v:1}, {t:'p',v:9}, {t:'s',v:1}, {t:'s',v:9},
-        {t:'z',v:1}, {t:'z',v:2}, {t:'z',v:3}, {t:'z',v:4}, {t:'z',v:5}, {t:'z',v:6}, {t:'z',v:7}
-      ];
-      terminals.forEach((x, i) => hand.push(createTile(x.t as TileType, x.v, `${i}`)));
-      const dup = terminals[Math.floor(Math.random() * terminals.length)];
-      hand.push(createTile(dup.t as TileType, dup.v, 'dup'));
-      break;
+      switch (selectedType) {
+        case 'Kokushi':
+          name = '國士無雙';
+          const terminals = [
+            {t:'m',v:1}, {t:'m',v:9}, {t:'p',v:1}, {t:'p',v:9}, {t:'s',v:1}, {t:'s',v:9},
+            {t:'z',v:1}, {t:'z',v:2}, {t:'z',v:3}, {t:'z',v:4}, {t:'z',v:5}, {t:'z',v:6}, {t:'z',v:7}
+          ];
+          terminals.forEach((x, i) => hand.push(createTile(x.t as TileType, x.v, `${i}`)));
+          const dup = terminals[Math.floor(Math.random() * terminals.length)];
+          hand.push(createTile(dup.t as TileType, dup.v, 'dup'));
+          break;
 
-    case 'Chuuren':
-      name = '九蓮寶燈';
-      const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
-      const structure = [1,1,1,2,3,4,5,6,7,8,9,9,9];
-      structure.forEach((v, i) => hand.push(createTile(suit, v, `${i}`)));
-      const extra = Math.ceil(Math.random() * 9);
-      hand.push(createTile(suit, extra, 'extra'));
-      break;
+        case 'Chuuren':
+          name = '九蓮寶燈';
+          const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
+          const structure = [1,1,1,2,3,4,5,6,7,8,9,9,9];
+          structure.forEach((v, i) => hand.push(createTile(suit, v, `${i}`)));
+          const extra = Math.ceil(Math.random() * 9);
+          hand.push(createTile(suit, extra, 'extra'));
+          break;
 
-    case 'Daisangen':
-      name = '大三元';
-      [5, 6, 7].forEach((v, idx) => {
-          for(let i=0; i<3; i++) hand.push(createTile('z', v, `ds-${idx}-${i}`));
-      });
-      hand.push(createTile('m', 1, 'f1')); hand.push(createTile('m', 1, 'f2')); hand.push(createTile('m', 1, 'f3'));
-      hand.push(createTile('s', 8, 'p1')); hand.push(createTile('s', 8, 'p2')); 
-      break;
-    
-    case 'Tsuuisa':
-      name = '字一色';
-      const honors = [1,2,3,4,5,6,7].sort(() => Math.random() - 0.5).slice(0, 5);
-      honors.forEach((v, idx) => {
-          const count = idx < 4 ? 3 : 2;
-          for(let i=0; i<count; i++) hand.push(createTile('z', v, `ts-${idx}-${i}`));
-      });
-      break;
+        case 'Daisangen':
+          name = '大三元';
+          [5, 6, 7].forEach((v, idx) => {
+              for(let i=0; i<3; i++) hand.push(createTile('z', v, `ds-${idx}-${i}`));
+          });
+          hand.push(createTile('m', 1, 'f1')); hand.push(createTile('m', 1, 'f2')); hand.push(createTile('m', 1, 'f3'));
+          hand.push(createTile('s', 8, 'p1')); hand.push(createTile('s', 8, 'p2')); 
+          break;
+        
+        case 'Tsuuisa':
+          name = '字一色';
+          const honors = [1,2,3,4,5,6,7].sort(() => Math.random() - 0.5).slice(0, 5);
+          honors.forEach((v, idx) => {
+              const count = idx < 4 ? 3 : 2;
+              for(let i=0; i<count; i++) hand.push(createTile('z', v, `ts-${idx}-${i}`));
+          });
+          break;
 
-    case 'Ryuuiisou':
-      name = '綠一色';
-      const greens = [
-          {t:'s',v:2}, {t:'s',v:3}, {t:'s',v:4}, {t:'s',v:6}, {t:'s',v:8}, {t:'z',v:6}
-      ];
-      const chosenG: any[] = [];
-      while(chosenG.length < 5) chosenG.push(greens[Math.floor(Math.random()*greens.length)]);
-      chosenG.forEach((g, idx) => {
-          const count = idx < 4 ? 3 : 2; 
-          for(let i=0; i<count; i++) hand.push(createTile(g.t, g.v, `ry-${idx}-${i}`));
-      });
-      break;
+        case 'Ryuuiisou':
+          name = '綠一色';
+          const greens = [
+              {t:'s',v:2}, {t:'s',v:3}, {t:'s',v:4}, {t:'s',v:6}, {t:'s',v:8}, {t:'z',v:6}
+          ];
+          const chosenG: any[] = [];
+          while(chosenG.length < 5) chosenG.push(greens[Math.floor(Math.random()*greens.length)]);
+          chosenG.forEach((g, idx) => {
+              const count = idx < 4 ? 3 : 2; 
+              for(let i=0; i<count; i++) hand.push(createTile(g.t, g.v, `ry-${idx}-${i}`));
+          });
+          break;
 
-    case 'Chinroutou':
-      name = '清老頭';
-      const ends = [
-          {t:'m',v:1}, {t:'m',v:9}, {t:'p',v:1}, {t:'p',v:9}, {t:'s',v:1}, {t:'s',v:9}
-      ];
-      const chosenC: any[] = [];
-      while(chosenC.length < 5) chosenC.push(ends[Math.floor(Math.random()*ends.length)]);
-      chosenC.forEach((g, idx) => {
-          const count = idx < 4 ? 3 : 2;
-          for(let i=0; i<count; i++) hand.push(createTile(g.t, g.v, `ch-${idx}-${i}`));
-      });
-      break;
+        case 'Chinroutou':
+          name = '清老頭';
+          const ends = [
+              {t:'m',v:1}, {t:'m',v:9}, {t:'p',v:1}, {t:'p',v:9}, {t:'s',v:1}, {t:'s',v:9}
+          ];
+          const chosenC: any[] = [];
+          while(chosenC.length < 5) chosenC.push(ends[Math.floor(Math.random()*ends.length)]);
+          chosenC.forEach((g, idx) => {
+              const count = idx < 4 ? 3 : 2;
+              for(let i=0; i<count; i++) hand.push(createTile(g.t, g.v, `ch-${idx}-${i}`));
+          });
+          break;
 
-    case 'Daisuushii':
-      name = '大四喜';
-      fan = 26;
-      [1, 2, 3, 4].forEach((v, idx) => {
-          for(let i=0; i<3; i++) hand.push(createTile('z', v, `bw-${idx}-${i}`));
-      });
-      hand.push(createTile('m', 5, 'p1')); hand.push(createTile('m', 5, 'p2'));
-      break;
+        case 'Daisuushii':
+          name = '大四喜';
+          fan = 26;
+          [1, 2, 3, 4].forEach((v, idx) => {
+              for(let i=0; i<3; i++) hand.push(createTile('z', v, `bw-${idx}-${i}`));
+          });
+          hand.push(createTile('m', 5, 'p1')); hand.push(createTile('m', 5, 'p2'));
+          break;
 
-    case 'Shousuushii':
-      name = '小四喜';
-      const winds = [1, 2, 3, 4].sort(() => Math.random() - 0.5);
-      winds.forEach((v, idx) => {
-          const count = idx < 3 ? 3 : 2;
-          for(let i=0; i<count; i++) hand.push(createTile('z', v, `sw-${idx}-${i}`));
-      });
-      for(let i=0; i<3; i++) hand.push(createTile('z', 7, `fill-${i}`));
-      break;
+        case 'Shousuushii':
+          name = '小四喜';
+          const winds = [1, 2, 3, 4].sort(() => Math.random() - 0.5);
+          winds.forEach((v, idx) => {
+              const count = idx < 3 ? 3 : 2;
+              for(let i=0; i<count; i++) hand.push(createTile('z', v, `sw-${idx}-${i}`));
+          });
+          for(let i=0; i<3; i++) hand.push(createTile('z', 7, `fill-${i}`));
+          break;
 
-    default:
-      name = '四暗刻';
-      hand = getSuuankouShape();
-      break;
+        default:
+          name = '四暗刻';
+          hand = getSuuankouShape();
+          break;
+      }
+      return { hand: sortHand(hand), yakuName: name, fan };
   }
 
-  return { hand: sortHand(hand), yakuName: name, fan };
-};
-
-// 匯出函式：生成絕技手牌 (可指定最高分數限制)
-export const generateSpecialHand = (maxPoints?: number): { hand: Tile[], yakuName: string, fan: number } => {
-  // 若無限制或限制很高，直接給役滿
-  if (maxPoints === undefined || maxPoints >= 32000) {
-      return generateYakuman();
-  }
-
+  // 根據 limitScore 決定手牌等級
+  // CPU 視為莊家，莊家點數約為閒家 1.5 倍
+  // 倍滿 24000, 跳滿 18000, 滿貫 12000, 3番 5800/7700, 2番 2900, 1番 1500
   let hand: Tile[] = [];
   let name = '';
   let fan = 1;
 
-  // 根據 maxPoints 決定手牌等級 (假設 CPU 為莊家，莊家點數約為閒家 1.5 倍)
-  // 倍滿 24000, 跳滿 18000, 滿貫 12000, 3番 5800, 2番 2900, 1番 1500
-  
-  if (maxPoints >= 24000) {
+  if (limitScore >= 24000) {
       name = '清一色 (倍滿)';
       fan = 8;
-      // 構造清一色牌型
       const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
       [1,1,1,2,3,4,5,6,7,8,9,9,9,5].forEach((v, i) => hand.push(createTile(suit, v, `bm-${i}`)));
-  } else if (maxPoints >= 18000) {
+  } else if (limitScore >= 18000) {
       name = '清一色 (跳滿)';
       fan = 6;
       const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
       [1,2,3, 2,3,4, 5,6,7, 7,8,9, 5,5].forEach((v, i) => hand.push(createTile(suit, v, `hm-${i}`)));
-  } else if (maxPoints >= 12000) {
+  } else if (limitScore >= 12000) {
       name = '混一色 (滿貫)';
       fan = 5;
       const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
@@ -193,15 +350,14 @@ export const generateSpecialHand = (maxPoints?: number): { hand: Tile[], yakuNam
       [7,8,9].forEach((v,i) => hand.push(createTile(suit, v, `mn3-${i}`)));
       [1,1,1].forEach((v,i) => hand.push(createTile('z', 5, `mn4-${i}`))); // 白
       [1,1].forEach((v,i) => hand.push(createTile('z', 6, `mn5-${i}`))); // 發對
-  } else if (maxPoints >= 5800) {
+  } else if (limitScore >= 5800) {
       name = '斷么九 (三番)';
       fan = 3;
-      // 斷么牌型
       [2,3,4, 2,3,4, 4,5,6, 6,7,8, 5,5].forEach((v, i) => {
          const t = i < 3 ? 'm' : i < 6 ? 'p' : i < 9 ? 's' : i < 12 ? 'm' : 's';
          hand.push(createTile(t as TileType, v, `f3-${i}`));
       });
-  } else if (maxPoints >= 2900) {
+  } else if (limitScore >= 2900) {
       name = '斷么九 (二番)';
       fan = 2;
       [2,3,4, 3,4,5, 4,5,6, 5,6,7, 8,8].forEach((v, i) => {
@@ -226,45 +382,78 @@ export const generateSpecialHand = (maxPoints?: number): { hand: Tile[], yakuNam
 
 const getStandardShanten = (handArr: number[], meldsCount: number): number => {
   let minShanten = 8;
-  const search = (depth: number, m: number, t: number, p: number) => {
-    const currentScore = 8 - 2 * m - t - p - (meldsCount * 2); 
-    if (currentScore >= minShanten && depth > 33) return;
+  
+  // DFS Search for Mentsu (Sets) and Heads (Pairs)
+  const search = (index: number, m: number, t: number, p: number) => {
+    // 1. Advance index to next available tile
+    while (index < 34 && handArr[index] === 0) index++;
 
-    for (let i = 0; i < 34; i++) {
-      if (handArr[i] > 0) {
-        if (p === 0 && handArr[i] >= 2) {
-          handArr[i] -= 2;
-          search(depth + 1, m, t, 1);
-          handArr[i] += 2;
-        }
-        if (handArr[i] >= 3) {
-          handArr[i] -= 3;
-          search(depth + 1, m + 1, t, p);
-          handArr[i] += 3;
-        }
-        if (i < 27 && i % 9 < 7) {
-           if (handArr[i] > 0 && handArr[i+1] > 0 && handArr[i+2] > 0) {
-             handArr[i]--; handArr[i+1]--; handArr[i+2]--;
-             search(depth + 1, m + 1, t, p);
-             handArr[i]++; handArr[i+1]++; handArr[i+2]++;
-           }
-        }
-        return; 
+    // 2. Base Case: No more tiles to process for sets
+    if (index >= 34) {
+      let taatsu = 0;
+      // Greedy Taatsu Counting on the 'leftovers' in handArr
+      // We need to consume tiles to avoid double counting.
+      const temp = [...handArr]; 
+      
+      for (let i = 0; i < 34; i++) {
+         if (temp[i] === 2) {
+             // Pair treated as Taatsu
+             taatsu++;
+             temp[i] = 0;
+         } else if (temp[i] === 1) {
+             // Check Penchan/Ryanmen/Kanchan
+             if (i < 27 && i % 9 < 8 && temp[i+1] > 0) {
+                 taatsu++;
+                 temp[i]--; 
+                 temp[i+1]--;
+             } else if (i < 27 && i % 9 < 7 && temp[i+2] > 0) {
+                 taatsu++;
+                 temp[i]--;
+                 temp[i+2]--;
+             }
+         }
       }
+
+      let potentialSets = m + meldsCount;
+      let potentialTaatsu = t + taatsu;
+      
+      // Rule: Sets + Taatsus <= 4
+      if (potentialSets + potentialTaatsu > 4) potentialTaatsu = 4 - potentialSets;
+      
+      // Shanten Formula: 8 - 2*Sets - Taatsu - Pair
+      const shanten = 8 - (potentialSets * 2) - potentialTaatsu - p;
+      if (shanten < minShanten) minShanten = shanten;
+      return;
     }
 
-    let taatsu = 0;
-    for(let i=0; i<34; i++) {
-        if (handArr[i] === 2) taatsu++;
-        else if (handArr[i] === 1 && i < 27 && i % 9 < 8 && handArr[i+1] === 1) taatsu++; 
-        else if (handArr[i] === 1 && i < 27 && i % 9 < 7 && handArr[i+2] === 1) taatsu++;
-    }
-    let potentialSets = m + meldsCount;
-    let potentialTaatsu = t + taatsu;
-    if (potentialSets + potentialTaatsu > 4) potentialTaatsu = 4 - potentialSets;
+    // 3. Recursive Step: Try to form sets starting at 'index'
     
-    let shanten = 8 - (potentialSets * 2) - potentialTaatsu - p;
-    if (shanten < minShanten) minShanten = shanten;
+    // Option A: Koutsu (Triplet)
+    if (handArr[index] >= 3) {
+      handArr[index] -= 3;
+      search(index, m + 1, t, p);
+      handArr[index] += 3;
+    }
+    
+    // Option B: Shuntsu (Sequence)
+    if (index < 27 && index % 9 < 7) {
+       if (handArr[index+1] > 0 && handArr[index+2] > 0) {
+          handArr[index]--; handArr[index+1]--; handArr[index+2]--;
+          search(index, m + 1, t, p);
+          handArr[index]++; handArr[index+1]++; handArr[index+2]++;
+       }
+    }
+    
+    // Option C: Pair (only if no head yet)
+    if (p === 0 && handArr[index] >= 2) {
+      handArr[index] -= 2;
+      search(index, m, t, 1);
+      handArr[index] += 2;
+    }
+
+    // Option D: SKIP this tile (treat as isolated or future taatsu)
+    // We move to index + 1, leaving handArr[index] as is.
+    search(index + 1, m, t, p);
   };
 
   search(0, 0, 0, 0);
@@ -661,7 +850,9 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
   const allTiles = [...hand, ...melds.flatMap(m => m.tiles)];
   const counts = getCounts(allTiles);
   const handCounts = getCounts(hand);
-  const isMenzen = melds.length === 0;
+  
+  // 修正：門前清判定，只有暗槓不算破壞門清
+  const isMenzen = melds.every(m => m.isClosed === true);
 
   const yakuman = checkYakuman(hand, melds, isMenzen, isTsumo);
   if (yakuman.length > 0) return yakuman;
@@ -788,7 +979,8 @@ export const calculateFinalScore = (
 ): WinningResult | null => {
   if (!forceYakuName && !isSkill && !checkWin(hand, melds)) return null;
   
-  const isMenzen = melds.length === 0;
+  // 修正：門前清判定，只有暗槓不算破壞門清
+  const isMenzen = melds.every(m => m.isClosed === true);
 
   let yaku: YakuResult[] = [];
   
@@ -804,8 +996,10 @@ export const calculateFinalScore = (
   const dora = calculateDora(hand, melds, indicator);
   
   const isYakuman = yaku.some(y => y.fan >= 13);
+  const isForcedHand = !!forceYakuName;
 
-  if (!isYakuman && dora > 0) {
+  // IMPORTANT: 如果是絕技強制生成的牌型，不再疊加 Dora，避免分數超過預期的安全上限 (玩家保護機制)
+  if (!isYakuman && dora > 0 && !isForcedHand) {
       yaku.push({ name: '懸賞牌', fan: dora });
   }
 
@@ -843,5 +1037,32 @@ export const calculateFinalScore = (
   }
   if (isDealer) points = Math.ceil((points * 1.5) / 100) * 100;
 
-  return { winner: 'player', yaku, doraCount: dora, fan: totalFan, fu, points, hand, melds, isTsumo };
+  return { winner: 'player', yaku, doraCount: isForcedHand ? 0 : dora, fan: totalFan, fu, points, hand, melds, isTsumo };
+};
+
+// ==========================================
+// 立直判定
+// ==========================================
+
+export const checkReachAvailability = (hand: Tile[], melds: Meld[]): boolean => {
+  // 檢查是否門前清：沒有副露，或者只有暗槓
+  // 如果副露陣列中存在非暗槓的副露 (isClosed !== true)，則不為門前清，不可立直
+  const isMenzen = melds.every(m => m.isClosed === true);
+  if (!isMenzen) return false;
+  
+  // 必須是自己回合且手牌為 14 張 (3n+2)，代表剛摸牌尚未打出
+  if (hand.length % 3 !== 2) return false;
+
+  // 檢查是否打掉一張後聽牌 (Shanten == 0)
+  // 輪詢打掉每一張牌
+  for (let i = 0; i < hand.length; i++) {
+    const tempHand = hand.filter((_, idx) => idx !== i);
+    // 計算打掉這張牌後的向聽數
+    const shanten = calculateShanten(tempHand, melds);
+    // 向聽數為 0 代表聽牌
+    if (shanten <= 0) {
+        return true;
+    }
+  }
+  return false;
 };

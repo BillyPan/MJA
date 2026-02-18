@@ -11,6 +11,7 @@ export interface Tile {
 export interface Meld {
   type: 'chi' | 'pon' | 'kan';
   tiles: Tile[];
+  isClosed?: boolean; // True for Ankan (Closed Kan), False for others
 }
 
 export enum GamePhase {

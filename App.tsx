@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
-import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateSpecialHand, getChiCombinations } from './services/mahjongEngine';
+import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateSpecialHand, getChiCombinations, generateAmaterasuHand } from './services/mahjongEngine';
 import { getInstructorDialogue } from './services/gemini';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
@@ -57,7 +57,7 @@ const App: React.FC = () => {
     playerDiscards: [],
     cpuDiscards: [],
     currentTurn: 'player',
-    playerEnergy: 100,
+    playerEnergy: 100, // Initial EP is 100
     playerScore: 25000,
     cpuScore: 25000,
     phase: GamePhase.INTRO,
@@ -95,7 +95,10 @@ const App: React.FC = () => {
     if (gameState.isWinAnimation) {
       playSound('win');
       // 老師胡牌停留4秒，玩家胡牌停留2.5秒
-      const delay = gameState.winningHand?.winner === 'cpu' ? 4000 : 2500;
+      // 天照大神勝利時，延長展示時間
+      const isAmaterasu = gameState.winningHand?.yaku.some(y => y.name.includes('天照'));
+      const delay = isAmaterasu ? 8000 : (gameState.winningHand?.winner === 'cpu' ? 4000 : 2500);
+      
       const timer = setTimeout(() => {
         setGameState(prev => ({
           ...prev,
@@ -128,7 +131,8 @@ const App: React.FC = () => {
       playerDiscards: [],
       cpuDiscards: [],
       currentTurn: 'player',
-      playerEnergy: Math.min(100, pEnergy + 10),
+      // EP Accumulation: Max 300
+      playerEnergy: Math.min(300, pEnergy + 10),
       playerScore: pScore,
       cpuScore: cScore,
       isPlayerReach: false,
@@ -161,10 +165,13 @@ const App: React.FC = () => {
         ...prev,
         deck: newDeck,
         playerHand: newHand,
-        playerEnergy: Math.min(100, prev.playerEnergy + 5),
+        // EP gain on draw: Max 300
+        playerEnergy: Math.min(300, prev.playerEnergy + 5),
         currentTurn: 'player',
         pendingCall: calls.kan ? calls : null,
-        lastDiscardTile: kanTile,
+        // 如果有槓牌機會，將該牌設為 lastDiscardTile 供後續邏輯使用；否則保持 null (或之前的)
+        // 注意：這會改變 lastDiscardTile 的語義（變成「操作目標牌」），但對吃碰槓邏輯是必要的
+        lastDiscardTile: kanTile || null, 
         message: canTsumoRes ? "可以自摸囉！" : prev.message
       };
     });
@@ -198,7 +205,7 @@ const App: React.FC = () => {
       lastDiscardTile: discarded,
       currentTurn: 'cpu',
       pendingCall: null,
-      message: Math.random() < 0.3 ? getInstructorDialogue() : prev.message
+      message: Math.random() < 0.7 ? getInstructorDialogue() : prev.message
     }));
 
     const cpuDifficulty = gameState.selectedInstructor?.difficulty || 1;
@@ -260,7 +267,7 @@ const App: React.FC = () => {
       return {
         ...prev,
         cpuHand: sortHand(newHand),
-        cpuMelds: [...prev.cpuMelds, { type, tiles: newMeld }],
+        cpuMelds: [...prev.cpuMelds, { type, tiles: newMeld, isClosed: false }], // CPU calls are always open
         message: `${prev.selectedInstructor?.name}：${type === 'pon' ? '碰' : '吃'}！`,
         currentTurn: 'cpu'
       };
@@ -292,7 +299,7 @@ const App: React.FC = () => {
               // 觸發絕技
               playSound('skill');
               
-              // 計算分數上限：不超過玩家目前點數的 2/3
+              // 計算分數上限：不超過玩家目前點數的 2/3 (保護機制)
               const limitScore = Math.floor(prev.playerScore * 2 / 3);
               const godHandData = generateSpecialHand(limitScore);
               
@@ -416,7 +423,7 @@ const App: React.FC = () => {
       const hasCall = Object.values(calls).some(v => v);
       if (!hasCall) setTimeout(playerDraw, 800);
 
-      const msg = isNowReach && !prev.isCpuReach ? `${prev.selectedInstructor?.name}：立直！` : (Math.random() < 0.3 ? getInstructorDialogue() : prev.message);
+      const msg = isNowReach && !prev.isCpuReach ? `${prev.selectedInstructor?.name}：立直！` : (Math.random() < 0.7 ? getInstructorDialogue() : prev.message);
 
       return {
         ...prev,
@@ -461,23 +468,36 @@ const App: React.FC = () => {
         lastDiscardTile: discarded,
         pendingCall: hasCall ? calls : null,
         currentTurn: 'player',
-        message: Math.random() < 0.3 ? getInstructorDialogue() : prev.message
+        message: Math.random() < 0.7 ? getInstructorDialogue() : prev.message
       };
     });
   };
 
   const handleCall = (action: keyof CallActions | 'PASS', selectedTiles?: Tile[]) => {
+    // 1. Handle PASS
     if (action === 'PASS') {
       const handCount = gameState.playerHand.length;
       if (handCount % 3 === 2) {
+        // Player's turn (14 tiles) - e.g. Pass Kan
         setGameState(prev => ({ ...prev, pendingCall: null, chiCombinations: null }));
       } else {
+        // Opponent's discard (13 tiles) - e.g. Pass Pon/Chi
         setGameState(prev => ({ ...prev, pendingCall: null, chiCombinations: null }));
         playerDraw();
       }
       return;
     }
-    const tile = gameState.lastDiscardTile!;
+    
+    // 2. Safety Check: Determine if lastDiscardTile is needed
+    // 自摸時 (ron action + 14 tiles) 不需要 lastDiscardTile
+    const isTsumoCall = action === 'ron' && gameState.playerHand.length % 3 === 2;
+    
+    if (!isTsumoCall && !gameState.lastDiscardTile) {
+        // console.error("Missing lastDiscardTile for action:", action);
+        return;
+    }
+
+    const tile = isTsumoCall ? gameState.playerHand[gameState.playerHand.length-1] : gameState.lastDiscardTile!;
 
     if (action === 'ron') {
       const isTsumoAction = gameState.playerHand.length % 3 === 2; // 使用模數判斷是否為自摸
@@ -512,15 +532,15 @@ const App: React.FC = () => {
         if (matchingInHand.length === 4) { // 暗槓
           const toRemove = matchingInHand.map(m => m.id);
           newHand = newHand.filter(t => !toRemove.includes(t.id));
-          newMelds.push({ type: 'kan', tiles: matchingInHand });
+          newMelds.push({ type: 'kan', tiles: matchingInHand, isClosed: true }); // Ankan is Closed
         } else if (matchingInHand.length === 3) { // 明槓
           const toRemove = matchingInHand.map(m => m.id);
           newHand = newHand.filter(t => !toRemove.includes(t.id));
-          newMelds.push({ type: 'kan', tiles: [...matchingInHand, tile] });
+          newMelds.push({ type: 'kan', tiles: [...matchingInHand, tile], isClosed: false }); // Daiminkan is Open
         } else { // 加槓
           const ponIdx = newMelds.findIndex(m => m.type === 'pon' && m.tiles[0].type === tile.type && m.tiles[0].value === tile.value);
           if (ponIdx !== -1) {
-            newMelds[ponIdx] = { type: 'kan', tiles: [...newMelds[ponIdx].tiles, tile] };
+            newMelds[ponIdx] = { type: 'kan', tiles: [...newMelds[ponIdx].tiles, tile], isClosed: false }; // Kakan is Open
             newHand = newHand.filter(t => t.id !== tile.id);
           }
         }
@@ -560,14 +580,14 @@ const App: React.FC = () => {
       if (action === 'pon') {
         const matches = newHand.filter(t => t.type === tile.type && t.value === tile.value).slice(0, 2);
         newHand = newHand.filter(t => !matches.some(m => m.id === t.id));
-        newMelds.push({ type: 'pon', tiles: [...matches, tile] });
+        newMelds.push({ type: 'pon', tiles: [...matches, tile], isClosed: false });
       } else if (action === 'chi' && selectedTiles) {
         // 使用玩家選擇的特定牌組來進行吃牌
         // 從手牌中移除這兩張選定的牌
         newHand = newHand.filter(t => !selectedTiles.some(selected => selected.id === t.id));
         // 確保排序： [小, 中, 大]
         const meldTiles = [...selectedTiles, tile].sort((a,b) => a.value - b.value);
-        newMelds.push({ type: 'chi', tiles: meldTiles });
+        newMelds.push({ type: 'chi', tiles: meldTiles, isClosed: false });
       }
       
       return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, chiCombinations: null, currentTurn: 'player' };
@@ -628,7 +648,8 @@ const App: React.FC = () => {
         }
       }, 2000);
 
-    } else if (skillType === 'EXCHANGE' && gameState.playerEnergy >= 30) {
+    // Update Exchange skill cost to 40
+    } else if (skillType === 'EXCHANGE' && gameState.playerEnergy >= 40) {
       if (gameState.playerHand.length % 3 !== 2) return;
       playSound('skill');
       setGameState(prev => {
@@ -697,8 +718,38 @@ const App: React.FC = () => {
           ...prev, 
           playerHand: newHand, 
           deck: newDeck, 
-          playerEnergy: prev.playerEnergy - 30, 
+          // Deduct 40 Energy
+          playerEnergy: prev.playerEnergy - 40, 
           message: msg 
+        };
+      });
+    } else if (skillType === 'AMATERASU' && gameState.playerEnergy >= 300) {
+      // 天照大神技能
+      playSound('skill');
+      const amaterasuResult = generateAmaterasuHand();
+      
+      setGameState(prev => {
+        // 設定手牌，以視覺效果為主
+        const newHand = amaterasuResult.hand;
+        const newMelds = amaterasuResult.melds;
+        
+        // 直接結束遊戲
+        const cpuNewScore = Math.max(0, prev.cpuScore - 100000); // 確保歸零，雖然分數通常遠超
+        
+        if (prev.selectedInstructor && cpuNewScore <= 0) {
+           saveProgress(prev.selectedInstructor.id);
+        }
+
+        return {
+           ...prev,
+           playerEnergy: prev.playerEnergy - 300,
+           playerHand: newHand,
+           playerMelds: newMelds, // 如果有偽造的副露
+           playerScore: prev.playerScore + amaterasuResult.points, // 雖然可能破表，但就讓它顯示吧
+           cpuScore: cpuNewScore, // 擊飛
+           winningHand: amaterasuResult,
+           isWinAnimation: true,
+           message: "禁忌·天照大神！森羅萬象灰飛煙滅！"
         };
       });
     }
@@ -728,7 +779,14 @@ const App: React.FC = () => {
          return;
       }
 
-      setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT, playerScore: 25000, cpuScore: 25000 }));
+      // 贏家保留 EP，輸家重置為 100
+      setGameState(prev => ({ 
+          ...prev, 
+          phase: GamePhase.SELECT_OPPONENT, 
+          playerScore: 25000, 
+          cpuScore: 25000,
+          playerEnergy: prev.playerScore <= 0 ? 100 : prev.playerEnergy
+      }));
     } else {
       // 傳遞累積的技能使用次數，確保同一場對戰中次數不被重置
       startNewRound(
@@ -739,6 +797,15 @@ const App: React.FC = () => {
         gameState.skillUsedCount 
       );
     }
+  };
+
+  // 格式化大數值為科學符號
+  const formatLargeNumber = (num: number) => {
+    if (num < 100000000) return num.toLocaleString();
+    const exponent = Math.floor(Math.log10(num));
+    // 解決精度問題，使用簡單的除法
+    const mantissa = (num / Math.pow(10, exponent)).toFixed(2);
+    return <>{mantissa} × 10<sup className="text-4xl ml-1">{exponent}</sup></>;
   };
 
   return (
@@ -841,7 +908,7 @@ const App: React.FC = () => {
                     </h2>
                     <div className="grid grid-cols-3 gap-10 max-w-6xl mx-auto overflow-y-auto pr-4 custom-scrollbar p-4 flex-1 min-h-0">
                         {INSTRUCTORS.map(inst => (
-                        <div key={inst.id} onClick={() => startNewRound(inst, 25000, 25000 + (inst.id - 1) * 5000, 100)} className="group bg-zinc-900 border-4 border-zinc-700 p-2 flex flex-col items-center cursor-pointer hover:border-yellow-500 transform hover:scale-105 transition-all relative overflow-hidden flex-shrink-0 shadow-xl">
+                        <div key={inst.id} onClick={() => startNewRound(inst, 25000, 25000 + (inst.id - 1) * 5000, gameState.playerEnergy)} className="group bg-zinc-900 border-4 border-zinc-700 p-2 flex flex-col items-center cursor-pointer hover:border-yellow-500 transform hover:scale-105 transition-all relative overflow-hidden flex-shrink-0 shadow-xl">
                             {graduatedIds.includes(inst.id) && (
                             <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none select-none">
                                 <div className="relative flex flex-col items-center animate-stamp">
@@ -891,57 +958,91 @@ const App: React.FC = () => {
                     />
                 )}
 
-                {gameState.phase === GamePhase.RESULT && (
-                    <div className="absolute inset-0 bg-black/95 z-[200] flex flex-col items-center justify-center p-10">
-                    <div className="absolute top-10 left-10 flex gap-10">
+                {gameState.phase === GamePhase.RESULT && (() => {
+                    // 判斷是否為天照大神或超高分牌型
+                    const isAmaterasu = gameState.winningHand?.yaku.some(y => y.name.includes('天照')) || (gameState.winningHand?.points ?? 0) > 100000;
+
+                    return (
+                    <div className={`absolute inset-0 bg-black/95 z-[200] flex ${isAmaterasu ? '' : 'flex-col items-center justify-center'} p-10`}>
+                    
+                    {/* Top Score Board (Always Top Left) */}
+                    <div className="absolute top-10 left-10 flex gap-10 z-10">
                         <div className="text-white text-3xl font-black">玩家: <span className="text-yellow-500">{gameState.playerScore}</span></div>
                         <div className="text-white text-3xl font-black italic">VS</div>
                         <div className="text-white text-3xl font-black">老師: <span className="text-red-500">{gameState.cpuScore}</span></div>
                     </div>
                     
-                    <h2 className={`text-9xl font-black mb-6 drop-shadow-lg ${gameState.winningHand?.winner === 'player' ? 'text-yellow-500 animate-bounce' : 'text-red-600'}`}>
+                    {/* Title */}
+                    <h2 className={`text-9xl font-black mb-6 drop-shadow-lg ${isAmaterasu ? 'absolute bottom-10 right-10 z-0 opacity-50 text-[8rem]' : 'relative'} ${gameState.winningHand?.winner === 'player' ? 'text-yellow-500 animate-bounce' : 'text-red-600'}`}>
                         {gameState.winningHand ? (gameState.winningHand.winner === 'player' ? '和了' : '老師胡牌!') : '流局'}
                     </h2>
 
-                    {/* New Result Hand Display: Shows all 14 tiles (Hand + Melds) sorted and grouped */}
-                    <div className="flex justify-center items-end gap-2 mb-10 overflow-x-auto max-w-full bg-white/5 p-6 rounded-xl border border-white/10 flex-wrap">
-                        <div className="flex gap-1">
-                            {/* Standing Tiles (Sorted) */}
-                            {sortHand(gameState.winningHand?.hand || []).map((t, i) => (
-                                <MahjongTile key={i} tile={t} size="md" className="pointer-events-none" />
-                            ))}
+                    {/* Amaterasu Mode: Next Round Button Top Right */}
+                    {isAmaterasu && (
+                        <div className="absolute top-10 right-10 z-50">
+                            <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-12 py-4 text-3xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all shadow-[0_0_30px_rgba(220,38,38,0.5)]">
+                                {gameState.cpuScore <= 0 ? '挑戰成功：返回老師選擇' : 'NEXT ROUND'}
+                            </button>
                         </div>
-                        {/* Melds (If any) */}
-                        {gameState.winningHand?.melds && gameState.winningHand.melds.length > 0 && (
-                            <div className="flex gap-4 ml-6 pl-6 border-l-2 border-white/10">
-                                {gameState.winningHand.melds.map((meld, i) => (
-                                    <div key={i} className="flex gap-0.5">
-                                        {meld.tiles.map((t, j) => <MahjongTile key={j} tile={t} size="md" className="pointer-events-none opacity-90" />)}
-                                    </div>
+                    )}
+
+                    {/* Main Content Wrapper */}
+                    <div className={`w-full flex flex-col ${isAmaterasu ? 'mt-32 h-full' : 'items-center'}`}>
+
+                        {/* Hand Tiles */}
+                        <div className={`flex justify-center items-end gap-2 mb-10 overflow-x-auto max-w-full bg-white/5 p-6 rounded-xl border border-white/10 flex-wrap ${isAmaterasu ? 'mx-auto scale-90 origin-top' : ''}`}>
+                            <div className="flex gap-1">
+                                {/* Standing Tiles (Sorted) */}
+                                {sortHand(gameState.winningHand?.hand || []).map((t, i) => (
+                                    <MahjongTile key={i} tile={t} size="md" className="pointer-events-none" />
                                 ))}
                             </div>
-                        )}
-                        {!gameState.winningHand && <span className="text-4xl text-white/50 font-bold">流局</span>}
-                    </div>
-
-                    <div className="text-center mb-10 min-h-[120px]">
-                        {gameState.winningHand?.yaku.map(y => (
-                        <div key={y.name} className={`text-4xl font-black italic mb-2 ${y.name.includes('懸賞') || y.name.includes('絕技') ? 'text-orange-400' : 'text-yellow-400'}`}>
-                            {y.name} {y.fan}番
+                            {/* Melds (If any) */}
+                            {gameState.winningHand?.melds && gameState.winningHand.melds.length > 0 && (
+                                <div className="flex gap-4 ml-6 pl-6 border-l-2 border-white/10">
+                                    {gameState.winningHand.melds.map((meld, i) => (
+                                        <div key={i} className="flex gap-0.5">
+                                            {meld.tiles.map((t, j) => <MahjongTile key={j} tile={t} size="md" className="pointer-events-none opacity-90" />)}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {!gameState.winningHand && <span className="text-4xl text-white/50 font-bold">流局</span>}
                         </div>
-                        ))}
+
+                        {/* Yaku & Points */}
+                        {/* 如果是天照大神，使用 Grid 布局雙欄顯示，並限制高度允許捲動 */}
+                        <div className={`${isAmaterasu ? 'grid grid-cols-2 gap-x-12 gap-y-1 w-full max-w-6xl px-10 overflow-y-auto max-h-[45vh] pr-4 custom-scrollbar' : 'flex flex-col items-center text-center mb-10 min-h-[120px]'}`}>
+                            {gameState.winningHand?.yaku.map(y => (
+                            <div key={y.name} className={`font-black italic ${isAmaterasu ? 'text-3xl text-left border-b border-white/10 pb-1' : 'text-4xl mb-2'} ${y.name.includes('懸賞') || y.name.includes('絕技') || y.name.includes('寶牌') ? 'text-orange-400' : 'text-yellow-400'}`}>
+                                <span className="mr-4">{y.name}</span>
+                                <span className={isAmaterasu ? 'float-right' : ''}>{y.fan}番</span>
+                            </div>
+                            ))}
+                        </div>
+                        
+                        {/* Points Display - Fixed at bottom left for Amaterasu */}
                         {gameState.winningHand && (
-                        <div className="text-white text-6xl font-black mt-6 border-t-2 border-white/20 pt-4">
-                            {gameState.winningHand.fu}符 {gameState.winningHand.fan}番：{gameState.winningHand.points}點
+                        <div className={`text-white font-black mt-6 border-t-2 border-white/20 pt-4 ${isAmaterasu ? 'absolute bottom-10 left-10 text-8xl z-50 drop-shadow-xl' : 'text-6xl text-center'}`}>
+                            {gameState.winningHand.fu}符 {gameState.winningHand.fan}番：{
+                                gameState.winningHand.points > 100000 
+                                ? formatLargeNumber(gameState.winningHand.points)
+                                : gameState.winningHand.points + "點"
+                            }
                         </div>
                         )}
                     </div>
 
-                    <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-20 py-6 text-4xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all">
-                        {gameState.cpuScore <= 0 ? '挑戰成功：返回老師選擇' : 'NEXT ROUND'}
-                    </button>
+                    {/* Normal Mode: Button Bottom */}
+                    {!isAmaterasu && (
+                        <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-20 py-6 text-4xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all">
+                            {gameState.cpuScore <= 0 ? '挑戰成功：返回老師選擇' : 'NEXT ROUND'}
+                        </button>
+                    )}
+
                     </div>
-                )}
+                    );
+                })()}
 
                 {gameState.phase === GamePhase.GAME_OVER && (
                     <div className="absolute inset-0 bg-black z-[300] flex flex-col items-center justify-center p-10 animate-fade-in">

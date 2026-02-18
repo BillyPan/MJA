@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { GameState, Tile, CallActions, Meld } from '../types';
 import MahjongTile from './MahjongTile';
@@ -8,7 +9,7 @@ interface MahjongGameProps {
   onDiscard: (id: string) => void;
   onUseSkill: (skill: string) => void;
   onTsumo: () => void;
-  onCall: (action: keyof CallActions | 'PASS') => void;
+  onCall: (action: keyof CallActions | 'PASS', tiles?: Tile[]) => void;
   isPendingReach?: boolean;
 }
 
@@ -51,7 +52,8 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
   // 這裡選擇不主動重置，讓玩家這局開啟後一直有效，直到刷新頁面。
   
   // 判定是否允許點擊手牌棄牌 (手牌數量模 3 餘 2 代表已摸牌)
-  const canInteractWithHand = state.currentTurn === 'player' && !state.pendingCall && (state.playerHand.length % 3 === 2);
+  // 當正在選擇吃牌組合時，鎖住手牌
+  const canInteractWithHand = state.currentTurn === 'player' && !state.pendingCall && !state.chiCombinations && (state.playerHand.length % 3 === 2);
 
   // 取得當前顯示用的名字與訊息
   const instructorName = state.selectedInstructor?.name || '';
@@ -168,7 +170,38 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
       </div>
 
       {/* Control Area */}
-      <div className="h-[320px] flex-shrink-0 flex flex-col items-center justify-end pb-6 bg-gradient-to-t from-black/95 to-transparent">
+      <div className="h-[320px] flex-shrink-0 flex flex-col items-center justify-end pb-6 bg-gradient-to-t from-black/95 to-transparent relative">
+        
+        {/* Chi Combinations Selector Overlay */}
+        {state.chiCombinations && state.lastDiscardTile && (
+            <div className="absolute bottom-[240px] left-1/2 -translate-x-1/2 z-50 flex flex-col items-center animate-bounce-short">
+                <div className="bg-black/90 px-6 py-4 rounded-xl border-4 border-yellow-500 shadow-2xl flex gap-6">
+                    {state.chiCombinations.map((combo, idx) => {
+                        // 構建顯示用的牌組：手牌中的2張 + 棄牌1張，並排序
+                        const displayTiles = [...combo, state.lastDiscardTile!].sort((a,b) => a.value - b.value);
+                        return (
+                            <div 
+                                key={idx} 
+                                onClick={() => onCall('chi', combo)}
+                                className="flex gap-0.5 p-2 bg-white/10 rounded-lg cursor-pointer hover:bg-white/30 hover:scale-105 transition-all border-2 border-transparent hover:border-red-500 group"
+                            >
+                                {displayTiles.map(t => (
+                                    <div key={t.id} className="relative">
+                                         <MahjongTile tile={t} size="sm" />
+                                         {/* 標記哪張是棄牌 (最後一張打出來的) */}
+                                         {t.id === state.lastDiscardTile!.id && (
+                                             <div className="absolute inset-0 bg-yellow-400/30 pointer-events-none ring-2 ring-yellow-400"></div>
+                                         )}
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })}
+                </div>
+                <div className="mt-2 text-yellow-400 font-black text-xl bg-black/60 px-4 py-1 rounded">請選擇吃牌組合</div>
+            </div>
+        )}
+
         <div className="w-full flex justify-end px-16 gap-3 mb-4">
           <div className="flex gap-3">
             {state.pendingCall?.ron && <button onClick={() => onCall('ron')} className="bg-red-700 text-white px-10 py-2 font-black text-2xl border-b-6 border-red-900 animate-bounce shadow-xl">榮和 RON</button>}
@@ -177,7 +210,12 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
             {canPlayerTsumo && <button onClick={onTsumo} className="bg-yellow-500 text-black px-10 py-2 font-black text-2xl border-b-6 border-yellow-800 animate-bounce shadow-xl">自摸 TSUMO</button>}
             
             {state.pendingCall?.pon && <button onClick={() => onCall('pon')} className="bg-blue-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-blue-800">碰 PON</button>}
-            {state.pendingCall?.chi && <button onClick={() => onCall('chi')} className="bg-green-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-green-800">吃 CHI</button>}
+            
+            {/* 吃 CHI 按鈕 - 如果正在選擇模式，這個按鈕不需要再顯示，或者顯示為取消 */}
+            {state.pendingCall?.chi && !state.chiCombinations && (
+                <button onClick={() => onCall('chi')} className="bg-green-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-green-800">吃 CHI</button>
+            )}
+            
             {state.pendingCall?.kan && <button onClick={() => onCall('kan')} className="bg-amber-600 text-white px-6 py-1.5 font-black text-xl border-b-4 border-amber-800">槓 KAN</button>}
             
             {state.currentTurn === 'player' && state.playerHand.length % 3 === 2 && (

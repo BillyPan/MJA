@@ -1,8 +1,9 @@
+
 // ... (imports remain same)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
-import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateSpecialHand } from './services/mahjongEngine';
+import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateSpecialHand, getChiCombinations } from './services/mahjongEngine';
 import { getInstructorDialogue } from './services/gemini';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
@@ -66,6 +67,7 @@ const App: React.FC = () => {
     isCpuReach: false,
     lastDiscardTile: null,
     pendingCall: null,
+    chiCombinations: null, // Initial state
     doraIndicator: null,
     isPlayerFuriten: false,
     isWinAnimation: false,
@@ -135,6 +137,7 @@ const App: React.FC = () => {
       winningHand: undefined,
       message: `${instructor.name}：請多指教囉！`,
       pendingCall: null,
+      chiCombinations: null,
       lastDiscardTile: null,
       isWinAnimation: false,
       skillUsedCount: existingSkillCount, // 使用傳入的累積次數
@@ -463,18 +466,19 @@ const App: React.FC = () => {
     });
   };
 
-  const handleCall = (action: keyof CallActions | 'PASS') => {
+  const handleCall = (action: keyof CallActions | 'PASS', selectedTiles?: Tile[]) => {
     if (action === 'PASS') {
       const handCount = gameState.playerHand.length;
       if (handCount % 3 === 2) {
-        setGameState(prev => ({ ...prev, pendingCall: null }));
+        setGameState(prev => ({ ...prev, pendingCall: null, chiCombinations: null }));
       } else {
-        setGameState(prev => ({ ...prev, pendingCall: null }));
+        setGameState(prev => ({ ...prev, pendingCall: null, chiCombinations: null }));
         playerDraw();
       }
       return;
     }
     const tile = gameState.lastDiscardTile!;
+
     if (action === 'ron') {
       const isTsumoAction = gameState.playerHand.length % 3 === 2; // 使用模數判斷是否為自摸
       const finalHand = isTsumoAction ? [...gameState.playerHand] : [...gameState.playerHand, tile];
@@ -492,7 +496,8 @@ const App: React.FC = () => {
           cpuScore: cpuNewScore,
           winningHand: { ...result, winner: 'player' },
           message: isTsumoAction ? "自摸！胡牌！" : "榮和！胡牌！",
-          isWinAnimation: true
+          isWinAnimation: true,
+          chiCombinations: null
         }));
       }
       return;
@@ -520,29 +525,52 @@ const App: React.FC = () => {
           }
         }
         setTimeout(playerDraw, 500);
-        return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, currentTurn: 'player', message: "槓！嶺上補牌！" };
+        return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, chiCombinations: null, currentTurn: 'player', message: "槓！嶺上補牌！" };
       });
       return;
     }
+    
+    // 吃牌邏輯更新
+    if (action === 'chi') {
+        // 如果沒有指定特定的牌，則先檢查是否有多的組合
+        if (!selectedTiles) {
+            const chiCombos = getChiCombinations(gameState.playerHand, tile);
+            
+            // 如果有多種組合，則進入選擇模式
+            if (chiCombos.length > 1) {
+                setGameState(prev => ({ ...prev, chiCombinations: chiCombos }));
+                return;
+            }
+            
+            // 如果只有一種，自動選擇第一種
+            if (chiCombos.length === 1) {
+                selectedTiles = chiCombos[0];
+            } else {
+                return; // 不可能發生，但以防萬一
+            }
+        }
+        // 如果有 selectedTiles，則繼續執行吃牌邏輯 (向下流動)
+    }
+
     playSound('call');
     setGameState(prev => {
       let newHand = [...prev.playerHand];
       let newMelds = [...prev.playerMelds];
+      
       if (action === 'pon') {
         const matches = newHand.filter(t => t.type === tile.type && t.value === tile.value).slice(0, 2);
         newHand = newHand.filter(t => !matches.some(m => m.id === t.id));
         newMelds.push({ type: 'pon', tiles: [...matches, tile] });
-      } else if (action === 'chi') {
-        const v = tile.value, t = tile.type;
-        const find = (val: number) => newHand.find(x => x.type === t && x.value === val);
-        let pair: Tile[] = [];
-        if (find(v-1) && find(v+1)) pair = [find(v-1)!, find(v+1)!];
-        else if (find(v-2) && find(v-1)) pair = [find(v-2)!, find(v-1)!];
-        else if (find(v+1) && find(v+2)) pair = [find(v+1)!, find(v+2)!];
-        newHand = newHand.filter(t => !pair.some(p => p.id === t.id));
-        newMelds.push({ type: 'chi', tiles: [...pair, tile] });
+      } else if (action === 'chi' && selectedTiles) {
+        // 使用玩家選擇的特定牌組來進行吃牌
+        // 從手牌中移除這兩張選定的牌
+        newHand = newHand.filter(t => !selectedTiles.some(selected => selected.id === t.id));
+        // 確保排序： [小, 中, 大]
+        const meldTiles = [...selectedTiles, tile].sort((a,b) => a.value - b.value);
+        newMelds.push({ type: 'chi', tiles: meldTiles });
       }
-      return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, currentTurn: 'player' };
+      
+      return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, chiCombinations: null, currentTurn: 'player' };
     });
   };
 

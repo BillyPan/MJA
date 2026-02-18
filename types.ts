@@ -59,6 +59,7 @@ export interface GameState {
   isCpuReach: boolean;
   lastDiscardTile: Tile | null;
   pendingCall: CallActions | null;
+  chiCombinations: Tile[][] | null; // New: Stores multiple chi options
   doraIndicator: Tile | null;
   isPlayerFuriten: boolean;
   isWinAnimation: boolean;

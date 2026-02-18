@@ -516,11 +516,41 @@ export const checkOwnTurnKan = (hand: Tile[], melds: Meld[]): Tile | null => {
 export const isFuriten = (discards: Tile[], waiting: string[]): boolean => discards.some(d => waiting.includes(`${d.type}${d.value}`));
 export const canPon = (hand: Tile[], tile: Tile): boolean => hand.filter(t => t.type === tile.type && t.value === tile.value).length >= 2;
 export const canKan = (hand: Tile[], tile: Tile): boolean => hand.filter(t => t.type === tile.type && t.value === tile.value).length >= 3;
+
+// 取得所有可以吃的組合 (返回 Tile[] 的陣列，每個陣列是2張牌)
+export const getChiCombinations = (hand: Tile[], tile: Tile): Tile[][] => {
+  if (tile.type === 'z') return [];
+  const combinations: Tile[][] = [];
+  const v = tile.value;
+  const t = tile.type;
+  
+  // 尋找手牌中特定值的第一張牌 (避免重複組合)
+  const find = (val: number): Tile | undefined => hand.find(x => x.type === t && x.value === val);
+
+  // 情況1: v-2, v-1, v
+  if (v >= 3) {
+      const t1 = find(v - 2);
+      const t2 = find(v - 1);
+      if (t1 && t2) combinations.push([t1, t2]);
+  }
+  // 情況2: v-1, v, v+1
+  if (v >= 2 && v <= 8) {
+      const t1 = find(v - 1);
+      const t2 = find(v + 1);
+      if (t1 && t2) combinations.push([t1, t2]);
+  }
+  // 情況3: v, v+1, v+2
+  if (v <= 7) {
+      const t1 = find(v + 1);
+      const t2 = find(v + 2);
+      if (t1 && t2) combinations.push([t1, t2]);
+  }
+  
+  return combinations;
+};
+
 export const canChi = (hand: Tile[], tile: Tile): boolean => {
-  if (tile.type === 'z') return false;
-  const v = tile.value, t = tile.type;
-  const has = (val: number) => hand.some(x => x.type === t && x.value === val);
-  return (v >= 3 && has(v-2) && has(v-1)) || (v >= 2 && v <= 8 && has(v-1) && has(v+1)) || (v <= 7 && has(v+1) && has(v+2));
+  return getChiCombinations(hand, tile).length > 0;
 };
 
 const isAllSequencesWithPair = (counts: Record<string, number>, pairTileKey: string): boolean => {

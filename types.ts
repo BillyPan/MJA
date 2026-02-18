@@ -28,6 +28,8 @@ export interface Instructor {
   prompt: string;
   description: string;
   difficulty: number;
+  specialSkillChance?: number; // 0.0 to 1.0
+  maxSkillUses?: number; // Maximum times skill can be used per round
 }
 
 export interface CallActions {
@@ -59,7 +61,8 @@ export interface GameState {
   pendingCall: CallActions | null;
   doraIndicator: Tile | null;
   isPlayerFuriten: boolean;
-  isWinAnimation: boolean; // New: Controls the Hu effect
+  isWinAnimation: boolean;
+  skillUsedCount: number; // New: Tracks CPU skill usage in current round
 }
 
 export interface YakuResult {

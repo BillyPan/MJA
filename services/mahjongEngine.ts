@@ -27,7 +27,7 @@ const getCounts = (tiles: Tile[]): Record<string, number> => {
 const isTerminalOrHonor = (t: Tile) => t.type === 'z' || t.value === 1 || t.value === 9;
 
 // ==========================================
-// 役滿生成器 (God Hand Generator)
+// 役滿與絕技生成器
 // ==========================================
 
 const createTile = (type: TileType, value: number, idSuffix: string): Tile => ({
@@ -36,7 +36,8 @@ const createTile = (type: TileType, value: number, idSuffix: string): Tile => ({
   value
 });
 
-export const generateGodHand = (): { hand: Tile[], yakuName: string, fan: number } => {
+// 內部使用：生成役滿 (給玩家用，或 CPU 不受限時使用)
+const generateYakuman = (): { hand: Tile[], yakuName: string, fan: number } => {
   const yakumanTypes = [
     'Kokushi', 'Chuuren', 'Daisangen', 'Suuankou', 'Tsuuisa', 'Ryuuiisou', 
     'Chinroutou', 'Daisuushii', 'Shousuushii' 
@@ -153,6 +154,67 @@ export const generateGodHand = (): { hand: Tile[], yakuName: string, fan: number
       name = '四暗刻';
       hand = getSuuankouShape();
       break;
+  }
+
+  return { hand: sortHand(hand), yakuName: name, fan };
+};
+
+// 匯出函式：生成絕技手牌 (可指定最高分數限制)
+export const generateSpecialHand = (maxPoints?: number): { hand: Tile[], yakuName: string, fan: number } => {
+  // 若無限制或限制很高，直接給役滿
+  if (maxPoints === undefined || maxPoints >= 32000) {
+      return generateYakuman();
+  }
+
+  let hand: Tile[] = [];
+  let name = '';
+  let fan = 1;
+
+  // 根據 maxPoints 決定手牌等級 (假設 CPU 為莊家，莊家點數約為閒家 1.5 倍)
+  // 倍滿 24000, 跳滿 18000, 滿貫 12000, 3番 5800, 2番 2900, 1番 1500
+  
+  if (maxPoints >= 24000) {
+      name = '清一色 (倍滿)';
+      fan = 8;
+      // 構造清一色牌型
+      const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
+      [1,1,1,2,3,4,5,6,7,8,9,9,9,5].forEach((v, i) => hand.push(createTile(suit, v, `bm-${i}`)));
+  } else if (maxPoints >= 18000) {
+      name = '清一色 (跳滿)';
+      fan = 6;
+      const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
+      [1,2,3, 2,3,4, 5,6,7, 7,8,9, 5,5].forEach((v, i) => hand.push(createTile(suit, v, `hm-${i}`)));
+  } else if (maxPoints >= 12000) {
+      name = '混一色 (滿貫)';
+      fan = 5;
+      const suit = (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
+      [1,2,3].forEach((v,i) => hand.push(createTile(suit, v, `mn-${i}`)));
+      [4,5,6].forEach((v,i) => hand.push(createTile(suit, v, `mn2-${i}`)));
+      [7,8,9].forEach((v,i) => hand.push(createTile(suit, v, `mn3-${i}`)));
+      [1,1,1].forEach((v,i) => hand.push(createTile('z', 5, `mn4-${i}`))); // 白
+      [1,1].forEach((v,i) => hand.push(createTile('z', 6, `mn5-${i}`))); // 發對
+  } else if (maxPoints >= 5800) {
+      name = '斷么九 (三番)';
+      fan = 3;
+      // 斷么牌型
+      [2,3,4, 2,3,4, 4,5,6, 6,7,8, 5,5].forEach((v, i) => {
+         const t = i < 3 ? 'm' : i < 6 ? 'p' : i < 9 ? 's' : i < 12 ? 'm' : 's';
+         hand.push(createTile(t as TileType, v, `f3-${i}`));
+      });
+  } else if (maxPoints >= 2900) {
+      name = '斷么九 (二番)';
+      fan = 2;
+      [2,3,4, 3,4,5, 4,5,6, 5,6,7, 8,8].forEach((v, i) => {
+         const t = 'p';
+         hand.push(createTile(t, v, `f2-${i}`));
+      });
+  } else {
+      name = '斷么九 (一番)';
+      fan = 1;
+      [3,4,5, 3,4,5, 3,4,5, 3,4,5, 2,2].forEach((v, i) => {
+         const t = 's';
+         hand.push(createTile(t, v, `f1-${i}`));
+      });
   }
 
   return { hand: sortHand(hand), yakuName: name, fan };
@@ -404,6 +466,20 @@ const canFormMelds = (handArr: number[], count: number): boolean => {
     return true;
 };
 
+const isValidStructure = (arr: number[], setsNeeded: number): boolean => {
+    for (let i = 0; i < 34; i++) {
+        if (arr[i] >= 2) {
+            arr[i] -= 2;
+            if (canFormMelds(arr, setsNeeded)) {
+                arr[i] += 2;
+                return true;
+            }
+            arr[i] += 2;
+        }
+    }
+    return false;
+};
+
 export const getWaitingTiles = (hand: Tile[], melds: Meld[]): string[] => {
   const waiting: string[] = [];
   const types: TileType[] = ['m', 'p', 's', 'z'];
@@ -481,7 +557,6 @@ const checkYakuman = (hand: Tile[], melds: Meld[], isMenzen: boolean, isTsumo: b
     const counts = getCounts(allTiles);
     const handCounts = getCounts(hand);
 
-    // 1. 國士無雙
     const uniqueKeys = Object.keys(counts);
     const terminals = uniqueKeys.filter(k => {
         const t = k[0]; const v = parseInt(k.slice(1));
@@ -491,8 +566,6 @@ const checkYakuman = (hand: Tile[], melds: Meld[], isMenzen: boolean, isTsumo: b
         yakumanList.push({ name: '國士無雙', fan: 13 });
     }
 
-    // 2. 四暗刻 (門清 + 手牌4刻子 + 自摸 或 手牌有4刻子且榮和)
-    // 註：嚴格規則若榮和雙碰則為三暗刻，但這裡為了體驗給予寬容判定或至少確保高分
     if (isMenzen) {
         let tri = 0;
         for (const k in handCounts) {
@@ -502,29 +575,24 @@ const checkYakuman = (hand: Tile[], melds: Meld[], isMenzen: boolean, isTsumo: b
              if (isTsumo) {
                  yakumanList.push({ name: '四暗刻', fan: 13 });
              } 
-             // 若榮和，理論上是三暗刻對對和，但在這裡不強制給役滿，留給普通役計算三暗刻+對對和(也是高分)
         }
     }
 
-    // 3. 大三元
     const dragons = ['z5', 'z6', 'z7'];
     const dragonTriplets = dragons.filter(k => counts[k] >= 3).length;
     if (dragonTriplets === 3) {
         yakumanList.push({ name: '大三元', fan: 13 });
     }
 
-    // 4. 字一色
     if (Object.keys(counts).every(k => k.startsWith('z'))) {
         yakumanList.push({ name: '字一色', fan: 13 });
     }
 
-    // 5. 綠一色
     const greens = ['s2', 's3', 's4', 's6', 's8', 'z6'];
     if (Object.keys(counts).every(k => greens.includes(k))) {
         yakumanList.push({ name: '綠一色', fan: 13 });
     }
 
-    // 6. 清老頭
     const isTerminal = (k: string) => {
         const t = k[0]; const v = parseInt(k.slice(1));
         return t !== 'z' && (v === 1 || v === 9);
@@ -533,7 +601,6 @@ const checkYakuman = (hand: Tile[], melds: Meld[], isMenzen: boolean, isTsumo: b
          yakumanList.push({ name: '清老頭', fan: 13 });
     }
 
-    // 7. 大四喜 / 小四喜
     const winds = ['z1', 'z2', 'z3', 'z4'];
     const windTriplets = winds.filter(k => counts[k] >= 3).length;
     const windPairs = winds.filter(k => counts[k] >= 2).length;
@@ -543,7 +610,6 @@ const checkYakuman = (hand: Tile[], melds: Meld[], isMenzen: boolean, isTsumo: b
         yakumanList.push({ name: '小四喜', fan: 13 });
     }
     
-    // 8. 九蓮寶燈
     if (isMenzen) {
         const suits = new Set(allTiles.map(t => t.type));
         if (suits.size === 1 && !suits.has('z')) {
@@ -567,24 +633,20 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
   const handCounts = getCounts(hand);
   const isMenzen = melds.length === 0;
 
-  // 1. 優先檢查役滿
   const yakuman = checkYakuman(hand, melds, isMenzen, isTsumo);
   if (yakuman.length > 0) return yakuman;
 
-  // 2. 普通役判定
   const yaku: YakuResult[] = [];
   
   if (isReach) yaku.push({ name: '立直', fan: 1 });
   if (isTsumo && isMenzen) yaku.push({ name: '門前自摸', fan: 1 });
   if (allTiles.every(t => !isTerminalOrHonor(t))) yaku.push({ name: '斷么九', fan: 1 });
   
-  // 役牌
   if (counts['z5'] >= 3) yaku.push({ name: '役牌：白', fan: 1 });
   if (counts['z6'] >= 3) yaku.push({ name: '役牌：發', fan: 1 });
   if (counts['z7'] >= 3) yaku.push({ name: '役牌：中', fan: 1 });
   if (counts['z1'] >= 3) yaku.push({ name: '役牌：東', fan: 1 });
   
-  // 染手
   const suits = new Set(allTiles.filter(t => t.type !== 'z').map(t => t.type));
   const hasHonor = allTiles.some(t => t.type === 'z');
   if (suits.size === 1) {
@@ -592,13 +654,48 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
     else yaku.push({ name: '混一色', fan: isMenzen ? 3 : 2 });
   }
   
-  // 七對子
   if (isMenzen && Object.values(getCounts(hand)).filter(v => v === 2).length === 7) {
       yaku.push({ name: '七對子', fan: 2 });
-      return yaku; // 七對子不複合順子系役種
+      return yaku;
   } 
 
-  // 平和 & 一盃口
+  for (let startVal = 1; startVal <= 7; startVal++) {
+    const suitTypes = ['m', 'p', 's'];
+    const tempArr = tilesToArr(hand);
+    let neededSets = 4 - melds.length;
+    let validSanshokuAllocation = true;
+
+    for (const s of suitTypes) {
+        const isMeld = melds.some(m => 
+            m.type === 'chi' && 
+            m.tiles[0].type === s && 
+            Math.min(...m.tiles.map(t=>t.value)) === startVal
+        );
+        
+        if (!isMeld) {
+            let offset = s === 'm' ? 0 : s === 'p' ? 9 : 18;
+            let idx = offset + startVal - 1;
+            
+            if (tempArr[idx] > 0 && tempArr[idx+1] > 0 && tempArr[idx+2] > 0) {
+                tempArr[idx]--;
+                tempArr[idx+1]--;
+                tempArr[idx+2]--;
+                neededSets--;
+            } else {
+                validSanshokuAllocation = false;
+                break;
+            }
+        }
+    }
+
+    if (validSanshokuAllocation) {
+        if (isValidStructure(tempArr, neededSets)) {
+            yaku.push({ name: '三色同順', fan: isMenzen ? 2 : 1 });
+            break;
+        }
+    }
+  }
+
   if (isMenzen) {
       const pairs = Object.keys(handCounts).filter(k => handCounts[k] >= 2);
       let isPinfu = false;
@@ -629,8 +726,6 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
       if (ippeikoFound) yaku.push({ name: '一盃口', fan: 1 });
   }
       
-  // 對對和 & 三暗刻
-  // 對對和：4個刻子 (含明刻/暗刻)
   const meldTriplets = melds.filter(m => m.type === 'pon' || m.type === 'kan').length;
   let handTriplets = 0;
   for (const k in handCounts) {
@@ -641,25 +736,11 @@ const evaluateYaku = (hand: Tile[], melds: Meld[], isReach: boolean, isTsumo: bo
       yaku.push({ name: '對對和', fan: 2 });
   }
 
-  // 三暗刻：手牌有3個刻子 (若榮和，則需要手牌4刻子才能算3暗1明，或者自摸3暗)
-  // 簡化判定：若門清且手牌有3個以上刻子，視為三暗刻。若非門清，需扣除榮和的那張(如果是碰)
-  // 這裡採用寬鬆判定：只要手牌(不含鳴牌)裡有3個刻子，就算三暗刻
   if (handTriplets >= 3) {
-      // 修正：如果非自摸，且正好3個刻子，其中一個可能是榮和造成的明刻，這裡為了體驗，
-      // 若是 Menzen 且手牌有3個刻子 -> 三暗刻 (2 fan)
-      // 若是 4個刻子 -> 即使榮和也是三暗刻
       if (handTriplets === 4 || isTsumo || isMenzen) {
           yaku.push({ name: '三暗刻', fan: 2 });
       }
   }
-
-  // 混全帶么 / 純全帶么
-  const isChanta = allTiles.every(t => {
-      if (isTerminalOrHonor(t)) return true; // 1, 9, z
-      // 檢查是否屬於 123 或 789 的順子的一部分
-      // 這比較難單獨檢查，這裡簡化略過，重點修復役滿和高分役
-      return false; 
-  });
   
   return yaku;
 };
@@ -691,16 +772,21 @@ export const calculateFinalScore = (
   if (yaku.length === 0) return null;
 
   const dora = calculateDora(hand, melds, indicator);
-  const totalFan = yaku.reduce((s, y) => s + y.fan, 0) + (yaku.some(y => y.fan >= 13) ? 0 : dora);
   
-  // 符數計算 (簡化)
-  let fu = 30; // 基礎符
+  const isYakuman = yaku.some(y => y.fan >= 13);
+
+  if (!isYakuman && dora > 0) {
+      yaku.push({ name: '懸賞牌', fan: dora });
+  }
+
+  const totalFan = yaku.reduce((s, y) => s + y.fan, 0);
+  
+  let fu = 30;
   if (!forceYakuName) {
       if (yaku.some(y => y.name === '七對子')) fu = 25;
       else if (yaku.some(y => y.name === '平和')) {
           fu = isTsumo ? 20 : 30;
       } else {
-          // 暗刻符數加成
           const handCounts = getCounts(hand);
           for (const k in handCounts) {
               if (handCounts[k] >= 3) {
@@ -710,7 +796,7 @@ export const calculateFinalScore = (
               }
           }
           if (isTsumo) fu += 2;
-          if (isMenzen && !isTsumo) fu += 10; // 門前加符
+          if (isMenzen && !isTsumo) fu += 10;
       }
   }
 
@@ -721,10 +807,9 @@ export const calculateFinalScore = (
   else if (totalFan >= 6) points = 12000;
   else if (totalFan >= 5) points = 8000;
   else {
-    // 符數進位
     fu = Math.ceil(fu / 10) * 10;
     const base = fu * Math.pow(2, totalFan + 2);
-    points = Math.min(Math.ceil((base * 4) / 100) * 100, 8000); // 滿貫限制，超過看上面
+    points = Math.min(Math.ceil((base * 4) / 100) * 100, 8000);
   }
   if (isDealer) points = Math.ceil((points * 1.5) / 100) * 100;
 

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
-import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateGodHand } from './services/mahjongEngine';
+import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateSpecialHand } from './services/mahjongEngine';
 import { getInstructorDialogue } from './services/gemini';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
@@ -69,6 +69,7 @@ const App: React.FC = () => {
     doraIndicator: null,
     isPlayerFuriten: false,
     isWinAnimation: false,
+    skillUsedCount: 0,
   });
 
   // 存檔功能 - 僅更新 State，不寫入 LocalStorage，模擬街機斷電重置
@@ -104,7 +105,8 @@ const App: React.FC = () => {
     }
   }, [gameState.isWinAnimation]);
 
-  const startNewRound = (instructor: Instructor, pScore: number, cScore: number, pEnergy: number) => {
+  // 修改：增加 existingSkillCount 參數，預設為 0
+  const startNewRound = (instructor: Instructor, pScore: number, cScore: number, pEnergy: number, existingSkillCount: number = 0) => {
     const deck = createDeck();
     const playerHand = sortHand(deck.splice(0, 13));
     const cpuHand = sortHand(deck.splice(0, 13));
@@ -135,6 +137,7 @@ const App: React.FC = () => {
       pendingCall: null,
       lastDiscardTile: null,
       isWinAnimation: false,
+      skillUsedCount: existingSkillCount, // 使用傳入的累積次數
     }));
     setTimeout(() => playerDraw(), 800);
   };
@@ -263,10 +266,51 @@ const App: React.FC = () => {
     setTimeout(cpuDiscard, 1000);
   };
 
-  // NEW: CPU 摸牌階段 (不進行整理，模擬思考)
+  // NEW: CPU 摸牌階段 (包含特殊技能觸發邏輯)
   const cpuDraw = () => {
     setGameState(prev => {
       if (prev.deck.length === 0) return { ...prev, phase: GamePhase.RESULT, message: "流局！" };
+      
+      // === CPU SPECIAL SKILL LOGIC START ===
+      const instructor = prev.selectedInstructor;
+      const discardCount = prev.cpuDiscards.length;
+      const usedCount = prev.skillUsedCount;
+      const maxUses = instructor?.maxSkillUses || 0;
+      
+      // 判斷是否觸發老師絕技：
+      // 1. 老師有設定 specialSkillChance 且 maxSkillUses
+      // 2. 已打出至少 2 張牌
+      // 3. 本局絕技使用次數未達上限
+      // 4. 機率判定通過
+      if (instructor && instructor.specialSkillChance && maxUses > 0 && 
+          discardCount >= 2 && usedCount < maxUses) {
+          
+          if (Math.random() < instructor.specialSkillChance) {
+              // 觸發絕技
+              playSound('skill');
+              
+              // 計算分數上限：不超過玩家目前點數的 2/3
+              const limitScore = Math.floor(prev.playerScore * 2 / 3);
+              const godHandData = generateSpecialHand(limitScore);
+              
+              // 設置延遲後執行絕技胡牌結算
+              setTimeout(() => {
+                  executeCpuSkillWin(godHandData);
+              }, 1500); // 稍微停頓讓玩家看到訊息
+
+              return {
+                  ...prev,
+                  cpuHand: godHandData.hand,
+                  cpuMelds: [], // 絕技通常是門清或特定牌型，這裡清空副露以配合 GodHand
+                  isCpuReach: false, // 重置立直狀態避免邏輯衝突
+                  message: `${instructor.name}：發動絕技【${godHandData.yakuName}】！`,
+                  currentTurn: 'cpu',
+                  skillUsedCount: prev.skillUsedCount + 1, // 增加使用次數
+              };
+          }
+      }
+      // === CPU SPECIAL SKILL LOGIC END ===
+
       playSound('draw');
       const newDeck = [...prev.deck];
       const drawn = newDeck.pop()!;
@@ -277,6 +321,36 @@ const App: React.FC = () => {
       setTimeout(cpuDecide, 1000);
 
       return { ...prev, cpuHand: fullHand, deck: newDeck, currentTurn: 'cpu' };
+    });
+  };
+
+  // 執行 CPU 絕技胡牌結算 (獨立於 cpuDecide，強制使用 GodHand 數據)
+  const executeCpuSkillWin = (godHandData: { hand: Tile[], yakuName: string, fan: number }) => {
+    setGameState(prev => {
+        // 使用 calculateFinalScore 並強制帶入絕技名稱與番數
+        const winResult = calculateFinalScore(
+            godHandData.hand, 
+            [], 
+            true, // isTsumo
+            prev.isCpuReach, 
+            prev.doraIndicator, 
+            true, // isDealer (CPU 通常假定是莊家或者不重要，這裡給 true 增加壓力)
+            true, // isSkill
+            godHandData.yakuName,
+            godHandData.fan
+        );
+
+        if (winResult) {
+            return {
+                ...prev,
+                cpuScore: prev.cpuScore + winResult.points,
+                playerScore: prev.playerScore - winResult.points,
+                winningHand: { ...winResult, winner: 'cpu' },
+                message: `${prev.selectedInstructor?.name}：絕技自摸！`,
+                isWinAnimation: true
+            };
+        }
+        return prev;
     });
   };
 
@@ -483,7 +557,8 @@ const App: React.FC = () => {
     } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 100) {
       playSound('skill');
       
-      const godHandData = generateGodHand();
+      // 玩家使用絕技時不限分數，保持爽快感
+      const godHandData = generateSpecialHand(); 
       const newHand = godHandData.hand;
       
       setGameState(prev => ({
@@ -627,7 +702,14 @@ const App: React.FC = () => {
 
       setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT, playerScore: 25000, cpuScore: 25000 }));
     } else {
-      startNewRound(gameState.selectedInstructor, gameState.playerScore, gameState.cpuScore, gameState.playerEnergy);
+      // 傳遞累積的技能使用次數，確保同一場對戰中次數不被重置
+      startNewRound(
+        gameState.selectedInstructor, 
+        gameState.playerScore, 
+        gameState.cpuScore, 
+        gameState.playerEnergy,
+        gameState.skillUsedCount 
+      );
     }
   };
 
@@ -790,7 +872,7 @@ const App: React.FC = () => {
                     </div>
                     
                     <h2 className={`text-9xl font-black mb-6 drop-shadow-lg ${gameState.winningHand?.winner === 'player' ? 'text-yellow-500 animate-bounce' : 'text-red-600'}`}>
-                        {gameState.winningHand ? (gameState.winningHand.winner === 'player' ? '和了' : '被胡牌') : '流局'}
+                        {gameState.winningHand ? (gameState.winningHand.winner === 'player' ? '和了' : '老師胡牌!') : '流局'}
                     </h2>
 
                     {/* New Result Hand Display: Shows all 14 tiles (Hand + Melds) sorted and grouped */}

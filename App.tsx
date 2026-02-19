@@ -79,13 +79,14 @@ const App: React.FC = () => {
     setGraduatedIds(prev => [...new Set([...prev, id])]);
   };
 
-  const playSound = (type: 'draw' | 'discard' | 'win' | 'call' | 'skill') => {
+  const playSound = (type: 'draw' | 'discard' | 'win' | 'call' | 'skill' | 'stage_clear') => {
     const urls = {
       draw: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
       discard: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
       win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
       call: 'https://assets.mixkit.co/active_storage/sfx/2570/2570-preview.mp3',
-      skill: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3'
+      skill: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3',
+      stage_clear: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3' // Upbeat fanfare
     };
     new Audio(urls[type]).play().catch(() => {});
   };
@@ -109,6 +110,24 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [gameState.isWinAnimation]);
+
+  // 控制過關畫面的計時器
+  useEffect(() => {
+    if (gameState.phase === GamePhase.STAGE_CLEAR) {
+        playSound('stage_clear');
+        const timer = setTimeout(() => {
+            setGameState(prev => ({ 
+                ...prev, 
+                phase: GamePhase.SELECT_OPPONENT, 
+                playerScore: 25000, 
+                cpuScore: 25000,
+                // 贏家保留 EP
+                playerEnergy: prev.playerEnergy 
+            }));
+        }, 10000); // 10秒
+        return () => clearTimeout(timer);
+    }
+  }, [gameState.phase]);
 
   // 修改：增加 existingSkillCount 參數，預設為 0
   const startNewRound = (instructor: Instructor, pScore: number, cScore: number, pEnergy: number, existingSkillCount: number = 0) => {
@@ -196,6 +215,8 @@ const App: React.FC = () => {
   };
 
   const handlePlayerDiscard = async (tileId: string) => {
+    // FIX: 移除 gameState.pendingCall 檢查，或者確保立直時已清除 pendingCall
+    // 由於我們在 useSkill('REACH') 時清除了 pendingCall，這裡保留原樣是安全的
     const tileIdx = gameState.playerHand.findIndex(t => t.id === tileId);
     if (tileIdx === -1 || gameState.currentTurn !== 'player' || gameState.pendingCall) return;
 
@@ -657,8 +678,9 @@ const App: React.FC = () => {
     if (skillType === 'REACH') {
       playSound('skill');
       setIsPendingReach(true);
-      // 移除扣能與檢查邏輯
-      setGameState(prev => ({ ...prev, message: "宣告立直！" }));
+      // 移除扣能與檢查邏輯，並設定訊息
+      // FIX: 強制清除 pendingCall，避免因暗槓後連續抽到槓牌機會而導致卡死（立直後只能棄牌，不能槓）
+      setGameState(prev => ({ ...prev, message: "宣告立直！", pendingCall: null }));
 
     } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 100) {
       playSound('skill');
@@ -825,36 +847,43 @@ const App: React.FC = () => {
         saveProgress(gameState.selectedInstructor.id);
     }
 
-    if (gameState.cpuScore <= 0 || gameState.playerScore <= 0) {
-      // 檢查是否全破
-      const currentId = gameState.selectedInstructor.id;
-      const isWin = gameState.cpuScore <= 0;
-      const allClearedIds = new Set(graduatedIds);
-      if (isWin) allClearedIds.add(currentId);
+    if (gameState.cpuScore <= 0) {
+        // Player Won Stage
+        const currentId = gameState.selectedInstructor.id;
+        // Check for Game Clear (All instructors)
+        const allClearedIds = new Set(graduatedIds);
+        allClearedIds.add(currentId);
+        
+        if (allClearedIds.size >= INSTRUCTORS.length) {
+             setGameState(prev => ({ ...prev, phase: GamePhase.GAME_OVER }));
+             return;
+        }
 
-      if (allClearedIds.size >= INSTRUCTORS.length) {
-         setGameState(prev => ({ ...prev, phase: GamePhase.GAME_OVER }));
-         return;
-      }
+        // Enter Stage Clear Phase
+        setGameState(prev => ({ ...prev, phase: GamePhase.STAGE_CLEAR }));
+        return;
+    } 
+    
+    if (gameState.playerScore <= 0) {
+        // Player Lost
+        setGameState(prev => ({ 
+            ...prev, 
+            phase: GamePhase.SELECT_OPPONENT, 
+            playerScore: 25000, 
+            cpuScore: 25000,
+            playerEnergy: 100 // Reset energy
+        }));
+        return;
+    }
 
-      // 贏家保留 EP，輸家重置為 100
-      setGameState(prev => ({ 
-          ...prev, 
-          phase: GamePhase.SELECT_OPPONENT, 
-          playerScore: 25000, 
-          cpuScore: 25000,
-          playerEnergy: prev.playerScore <= 0 ? 100 : prev.playerEnergy
-      }));
-    } else {
-      // 傳遞累積的技能使用次數，確保同一場對戰中次數不被重置
-      startNewRound(
+    // Continue match
+    startNewRound(
         gameState.selectedInstructor, 
         gameState.playerScore, 
         gameState.cpuScore, 
         gameState.playerEnergy,
         gameState.skillUsedCount 
-      );
-    }
+    );
   };
 
   // 格式化大數值為科學符號
@@ -1101,6 +1130,20 @@ const App: React.FC = () => {
                     </div>
                     );
                 })()}
+
+                {gameState.phase === GamePhase.STAGE_CLEAR && (
+                    <div className="absolute inset-0 z-[300] flex items-center justify-center bg-black overflow-hidden animate-fade-in">
+                        <img 
+                            src={`https://raw.githubusercontent.com/BillyPan/MJA2/main/${gameState.selectedInstructor?.id || 1}.webp`}
+                            className="w-full h-full object-contain"
+                            alt="Stage Clear"
+                        />
+                        <div className="absolute bottom-10 right-10 flex flex-col items-end">
+                            <h2 className="text-6xl font-black text-yellow-400 drop-shadow-[0_0_10px_rgba(0,0,0,0.8)] animate-pulse mb-2">STAGE CLEAR</h2>
+                            <p className="text-2xl text-white font-bold drop-shadow-md">即將返回選擇畫面...</p>
+                        </div>
+                    </div>
+                )}
 
                 {gameState.phase === GamePhase.GAME_OVER && (
                     <div className="absolute inset-0 bg-black z-[300] flex flex-col items-center justify-center p-10 animate-fade-in">

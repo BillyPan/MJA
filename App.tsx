@@ -307,6 +307,12 @@ const App: React.FC = () => {
   const handleCall = (action: keyof CallActions | 'PASS', tiles?: Tile[]) => {
     if (action === 'PASS') {
         setGameState(prev => {
+            // 修正：如果手牌已經是滿的 (例如槓牌後摸了嶺上牌又觸發槓牌詢問，此時選擇 PASS)，
+            // 不應該再摸牌，而是直接進入棄牌階段。
+            // 14張, 11張, 8張... % 3 === 2
+            if (prev.playerHand.length % 3 === 2) {
+                 return { ...prev, pendingCall: null, chiCombinations: null, lastDiscardTile: null, message: "請棄牌" };
+            }
             setTimeout(playerDraw, 300);
             return { ...prev, pendingCall: null, chiCombinations: null, message: "過牌..." };
         });

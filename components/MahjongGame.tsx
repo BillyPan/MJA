@@ -33,6 +33,7 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
   const cpuRiverRef = useRef<HTMLDivElement>(null);
   const playerRiverRef = useRef<HTMLDivElement>(null);
   const [cheatCount, setCheatCount] = useState(0);
+  const [doraClickCount, setDoraClickCount] = useState(0);
 
   // 計算該老師的初始總分 (保留變數但不顯示百分比)
   const initialCpuScore = useMemo(() => {
@@ -80,6 +81,16 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
   const handleAvatarClick = () => {
     if (cheatCount < 5) {
       setCheatCount(prev => prev + 1);
+    }
+  };
+
+  const handleDoraClick = () => {
+    const next = doraClickCount + 1;
+    if (next >= 6) {
+        onUseSkill('CHEAT_CHARGE');
+        setDoraClickCount(0);
+    } else {
+        setDoraClickCount(next);
     }
   };
 
@@ -156,7 +167,10 @@ const MahjongGame: React.FC<MahjongGameProps> = ({ state, onDiscard, onUseSkill,
         {/* Right: Dora & Player Score */}
         <div className="flex items-center gap-6 flex-shrink-0">
           {/* Compact Dora - Moved here for better layout balance */}
-          <div className="flex flex-col items-center justify-center bg-red-950/40 px-3 py-1 rounded border border-red-500/30 flex-shrink-0">
+          <div 
+            onClick={handleDoraClick}
+            className="flex flex-col items-center justify-center bg-red-950/40 px-3 py-1 rounded border border-red-500/30 flex-shrink-0 cursor-pointer select-none active:scale-95 transition-transform"
+          >
             <div className="flex items-center gap-1 mb-1">
               <span className="text-red-500 font-black text-[10px] italic uppercase opacity-80">懸賞</span>
               <span className="text-red-500 font-black text-xs italic">DORA</span>

@@ -1,5 +1,4 @@
 
-// ... (imports remain same)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
@@ -7,6 +6,18 @@ import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, ca
 import { getInstructorDialogue } from './services/gemini';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
+
+const STAGE_CLEAR_DIALOGUES: Record<number, string> = {
+  1: "怎麼會輸成這樣，連心都被你整個奪走了", // 美雪
+  2: "太犯規了吧你，把我打到全身都在發燙", // 麗奈
+  3: "我明明想冷靜，卻被你這一手徹底打亂", // 靜香
+  4: "牌輸了還能忍，但臉紅成這樣我不行了", // 優子
+  5: "你真的很壞，把我一步步逼到完全失守", // 小藍
+  6: "完全被你掌控，連心跳都不聽我指揮", // 佐和子
+  7: "原來我也會這樣輸得不矜持，太危險了", // 惠美
+  8: "連我都被你看穿，這種輸法太刺激了", // 神秘客
+  9: "居然被你擊倒，這種快感我不想承認"  // 畢業生
+};
 
 const App: React.FC = () => {
   const [graduatedIds, setGraduatedIds] = useState<number[]>([]);
@@ -23,23 +34,17 @@ const App: React.FC = () => {
         const isLandscape = w > h;
         setIsPortrait(!isLandscape);
 
-        // 定義 PC 標準解析度基準：1280x720
-        // 如果視窗小於此尺寸（例如手機、平板），則啟用縮放模式
-        // 如果是大螢幕 PC，則維持原有的 100% 寬高響應式，不進行干涉
         const targetW = 1280;
         const targetH = 720;
         
-        // 寬鬆判定：只要寬度或高度不足以容納基本 UI，就啟動縮放
         const needsScaling = w < targetW || h < targetH;
 
         if (needsScaling) {
            const scaleX = w / targetW;
            const scaleY = h / targetH;
-           // 取最小比例以確保內容完整顯示（Letterbox 模式）
            const scale = Math.min(scaleX, scaleY);
            setLayoutDims({ w: targetW, h: targetH, scale, needsScaling: true });
         } else {
-           // PC 端保持原樣
            setLayoutDims({ w: w, h: h, scale: 1, needsScaling: false });
         }
     };
@@ -74,7 +79,6 @@ const App: React.FC = () => {
     skillUsedCount: 0,
   });
 
-  // 存檔功能 - 僅更新 State，不寫入 LocalStorage，模擬街機斷電重置
   const saveProgress = (id: number) => {
     setGraduatedIds(prev => [...new Set([...prev, id])]);
   };
@@ -86,17 +90,14 @@ const App: React.FC = () => {
       win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
       call: 'https://assets.mixkit.co/active_storage/sfx/2570/2570-preview.mp3',
       skill: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3',
-      stage_clear: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3' // Upbeat fanfare
+      stage_clear: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3' 
     };
     new Audio(urls[type]).play().catch(() => {});
   };
 
-  // 控制胡牌動畫與延遲跳轉
   useEffect(() => {
     if (gameState.isWinAnimation) {
       playSound('win');
-      // 老師胡牌停留4秒，玩家胡牌停留2.5秒
-      // 天照大神勝利時，延長展示時間
       const isAmaterasu = gameState.winningHand?.yaku.some(y => y.name.includes('天照'));
       const delay = isAmaterasu ? 8000 : (gameState.winningHand?.winner === 'cpu' ? 4000 : 2500);
       
@@ -111,7 +112,6 @@ const App: React.FC = () => {
     }
   }, [gameState.isWinAnimation]);
 
-  // 控制過關畫面的計時器
   useEffect(() => {
     if (gameState.phase === GamePhase.STAGE_CLEAR) {
         playSound('stage_clear');
@@ -121,7 +121,6 @@ const App: React.FC = () => {
                 phase: GamePhase.SELECT_OPPONENT, 
                 playerScore: 25000, 
                 cpuScore: 25000,
-                // 贏家保留 EP
                 playerEnergy: prev.playerEnergy 
             }));
         }, 10000); // 10秒
@@ -129,20 +128,17 @@ const App: React.FC = () => {
     }
   }, [gameState.phase]);
 
-  // 修改：增加 existingSkillCount 參數，預設為 0
   const startNewRound = (instructor: Instructor, pScore: number, cScore: number, pEnergy: number, existingSkillCount: number = 0) => {
     const deck = createDeck();
     let playerHand: Tile[];
     let initMsg = `${instructor.name}：請多指教囉！`;
 
-    // 80% 機率觸發好手氣
     if (Math.random() < 0.80) {
         const luckyResult = generateLuckyStart(deck);
         if (luckyResult) {
             playerHand = luckyResult.hand;
             initMsg = `${instructor.name}：【好手氣】起手牌不錯喔！`;
         } else {
-            // 生成失敗回退
             playerHand = sortHand(deck.splice(0, 13));
         }
     } else {
@@ -166,7 +162,6 @@ const App: React.FC = () => {
       playerDiscards: [],
       cpuDiscards: [],
       currentTurn: 'player',
-      // EP Accumulation: Max 300
       playerEnergy: Math.min(300, pEnergy + 10),
       playerScore: pScore,
       cpuScore: cScore,
@@ -179,7 +174,7 @@ const App: React.FC = () => {
       chiCombinations: null,
       lastDiscardTile: null,
       isWinAnimation: false,
-      skillUsedCount: existingSkillCount, // 使用傳入的累積次數
+      skillUsedCount: existingSkillCount,
     }));
     setTimeout(() => playerDraw(), 800);
   };
@@ -190,11 +185,9 @@ const App: React.FC = () => {
       playSound('draw');
       const newDeck = [...prev.deck];
       const drawn = newDeck.pop()!;
-      // 注意：摸進來的牌直接加在最後，不可 sort 14 張
       const newHand = [...prev.playerHand, drawn];
       const kanTile = checkOwnTurnKan(newHand, prev.playerMelds);
       
-      // 判定是否可自摸 (此時還未確定是否天和，僅檢查手牌是否完成)
       const canTsumoRes = calculateFinalScore(newHand, prev.playerMelds, true, prev.isPlayerReach, prev.doraIndicator);
       
       const calls: CallActions = { ron: false, pon: false, chi: false, kan: !!kanTile };
@@ -202,21 +195,229 @@ const App: React.FC = () => {
         ...prev,
         deck: newDeck,
         playerHand: newHand,
-        // EP gain on draw: Max 300
         playerEnergy: Math.min(300, prev.playerEnergy + 5),
         currentTurn: 'player',
         pendingCall: calls.kan ? calls : null,
-        // 如果有槓牌機會，將該牌設為 lastDiscardTile 供後續邏輯使用；否則保持 null (或之前的)
-        // 注意：這會改變 lastDiscardTile 的語義（變成「操作目標牌」），但對吃碰槓邏輯是必要的
         lastDiscardTile: kanTile || null, 
         message: canTsumoRes ? "可以自摸囉！" : prev.message
       };
     });
   };
 
+  const cpuDiscard = () => {
+    setGameState(prev => {
+      const difficulty = prev.selectedInstructor?.difficulty || 1;
+      if (prev.cpuHand.length === 0) return prev;
+
+      const discardIdx = getBestDiscard(prev.cpuHand, prev.cpuMelds, difficulty, prev.cpuDiscards, prev.isCpuReach);
+      const newHand = [...prev.cpuHand];
+      const discarded = newHand.splice(discardIdx, 1)[0];
+      const newCpuDiscards = [...prev.cpuDiscards, discarded];
+      const sortedCpuHand = sortHand(newHand);
+
+      const playerCanRon = calculateFinalScore(
+        [...prev.playerHand, discarded], 
+        prev.playerMelds, 
+        false, 
+        prev.isPlayerReach, 
+        prev.doraIndicator, 
+        false
+      );
+
+      let callActions: CallActions | null = null;
+      let chiCombs: Tile[][] | null = null;
+
+      if (playerCanRon) {
+        callActions = { ron: true, pon: false, chi: false, kan: false };
+      }
+
+      if (!prev.isPlayerReach) {
+         const cPon = canPon(prev.playerHand, discarded);
+         const cKan = canKan(prev.playerHand, discarded);
+         const cChi = canChi(prev.playerHand, discarded);
+         
+         if (cPon || cKan || cChi) {
+             callActions = callActions || { ron: false, pon: false, chi: false, kan: false };
+             if (cPon) callActions.pon = true;
+             if (cKan) callActions.kan = true;
+             if (cChi) {
+                 callActions.chi = true;
+                 chiCombs = getChiCombinations(prev.playerHand, discarded);
+             }
+         }
+      }
+
+      if (!callActions) {
+         setTimeout(playerDraw, 500);
+      }
+
+      return {
+          ...prev,
+          cpuHand: sortedCpuHand,
+          cpuDiscards: newCpuDiscards,
+          lastDiscardTile: discarded,
+          currentTurn: callActions ? 'player' : 'player', 
+          pendingCall: callActions,
+          chiCombinations: chiCombs,
+          message: `${prev.selectedInstructor?.name}：打出 ${
+            discarded.type === 'z' 
+              ? (['','東','南','西','北','白','發','中'][discarded.value]) 
+              : `${discarded.value}${discarded.type === 'm' ? '萬' : discarded.type === 'p' ? '筒' : '索'}`
+          }`
+      };
+    });
+  };
+
+  const cpuDraw = () => {
+    setGameState(prev => {
+      if (prev.deck.length === 0) return { ...prev, phase: GamePhase.RESULT, message: "流局！" };
+      
+      const newDeck = [...prev.deck];
+      const drawn = newDeck.pop()!;
+      const newHand = [...prev.cpuHand, drawn];
+      
+      const winResult = calculateFinalScore(newHand, prev.cpuMelds, true, prev.isCpuReach, prev.doraIndicator, true); 
+
+      if (winResult) {
+          setTimeout(() => {
+              setGameState(ps => ({
+                  ...ps,
+                  cpuScore: ps.cpuScore + winResult.points,
+                  playerScore: ps.playerScore - winResult.points,
+                  winningHand: { ...winResult, winner: 'cpu' },
+                  isWinAnimation: true,
+                  message: `${ps.selectedInstructor?.name}：自摸！`
+              }));
+          }, 500);
+          return { ...prev, deck: newDeck, cpuHand: newHand };
+      }
+      
+      setTimeout(cpuDiscard, 500);
+
+      return {
+        ...prev,
+        deck: newDeck,
+        cpuHand: newHand,
+        currentTurn: 'cpu',
+        message: prev.message 
+      };
+    });
+  };
+
+  const handleCall = (action: keyof CallActions | 'PASS', tiles?: Tile[]) => {
+    if (action === 'PASS') {
+        setGameState(prev => {
+            setTimeout(playerDraw, 300);
+            return { ...prev, pendingCall: null, chiCombinations: null, message: "過牌..." };
+        });
+        return;
+    }
+
+    if (action === 'ron') {
+        setGameState(prev => {
+            const isTsumo = prev.currentTurn === 'player' && !prev.pendingCall?.ron;
+            const targetTile = isTsumo ? prev.playerHand[prev.playerHand.length - 1] : prev.lastDiscardTile;
+
+            if (!targetTile && !isTsumo) return prev;
+
+            const handForCalc = isTsumo ? prev.playerHand : [...prev.playerHand, targetTile!];
+            const res = calculateFinalScore(
+                handForCalc, 
+                prev.playerMelds, 
+                isTsumo, 
+                prev.isPlayerReach, 
+                prev.doraIndicator, 
+                false
+            );
+
+            if (res) {
+                 const cpuNewScore = prev.cpuScore - res.points;
+                 if (prev.selectedInstructor && cpuNewScore <= 0) {
+                     saveProgress(prev.selectedInstructor.id);
+                 }
+                 return {
+                     ...prev,
+                     playerScore: prev.playerScore + res.points,
+                     cpuScore: cpuNewScore,
+                     winningHand: { ...res, winner: 'player' },
+                     isWinAnimation: true,
+                     message: isTsumo ? "自摸！" : "榮和！"
+                 };
+            }
+            return prev;
+        });
+        return;
+    }
+
+    setGameState(prev => {
+        const discard = prev.lastDiscardTile!;
+        let newHand = [...prev.playerHand];
+        let meldTiles: Tile[] = [];
+        let isClosed = false;
+        
+        const isSelfTurn = prev.currentTurn === 'player';
+        
+        if (action === 'kan' && isSelfTurn) {
+             isClosed = true;
+             const kTile = prev.lastDiscardTile || checkOwnTurnKan(prev.playerHand, prev.playerMelds);
+             if (!kTile) return prev;
+             const quads = newHand.filter(t => t.type === kTile.type && t.value === kTile.value);
+             newHand = newHand.filter(t => !quads.includes(t));
+             meldTiles = quads;
+        } else if (action === 'kan') {
+             const triplets = newHand.filter(t => t.type === discard.type && t.value === discard.value).slice(0, 3);
+             newHand = newHand.filter(t => !triplets.includes(t));
+             meldTiles = [...triplets, discard];
+        } else if (action === 'pon') {
+             const pairs = newHand.filter(t => t.type === discard.type && t.value === discard.value).slice(0, 2);
+             newHand = newHand.filter(t => !pairs.includes(t));
+             meldTiles = [...pairs, discard];
+        } else if (action === 'chi') {
+             if (!tiles) return prev;
+             newHand = newHand.filter(t => !tiles.some(x => x.id === t.id));
+             meldTiles = [...tiles, discard].sort((a,b) => a.value - b.value);
+        }
+
+        const newMeld: Meld = {
+            type: action as any,
+            tiles: meldTiles,
+            isClosed
+        };
+
+        if (action === 'kan') {
+             const newDeck = [...prev.deck];
+             const replacement = newDeck.pop();
+             if (!replacement) return { ...prev, phase: GamePhase.RESULT, message: "流局" };
+             newHand.push(replacement);
+             const nextKan = checkOwnTurnKan(newHand, [...prev.playerMelds, newMeld]);
+             const nextCall = nextKan ? { ron:false, pon:false, chi:false, kan:true } : null;
+
+             return {
+                 ...prev,
+                 playerHand: newHand,
+                 playerMelds: [...prev.playerMelds, newMeld],
+                 deck: newDeck,
+                 currentTurn: 'player',
+                 pendingCall: nextCall,
+                 lastDiscardTile: nextKan || null,
+                 message: "槓！嶺上牌..."
+             };
+        }
+
+        return {
+            ...prev,
+            playerHand: newHand,
+            playerMelds: [...prev.playerMelds, newMeld],
+            currentTurn: 'player',
+            pendingCall: null,
+            chiCombinations: null,
+            lastDiscardTile: null,
+            message: `${action === 'chi' ? '吃' : '碰'}！請棄牌`
+        };
+    });
+  };
+
   const handlePlayerDiscard = async (tileId: string) => {
-    // FIX: 移除 gameState.pendingCall 檢查，或者確保立直時已清除 pendingCall
-    // 由於我們在 useSkill('REACH') 時清除了 pendingCall，這裡保留原樣是安全的
     const tileIdx = gameState.playerHand.findIndex(t => t.id === tileId);
     if (tileIdx === -1 || gameState.currentTurn !== 'player' || gameState.pendingCall) return;
 
@@ -226,7 +427,6 @@ const App: React.FC = () => {
     const updatedDiscards = [...gameState.playerDiscards, discarded];
     
     let reachStatus = gameState.isPlayerReach;
-    // 修正：只要是立直宣言狀態，棄牌後即確立立直 (即使是非聽牌立直，也視為成立以維持視覺效果)
     if (isPendingReach) {
         reachStatus = true;
     }
@@ -237,7 +437,7 @@ const App: React.FC = () => {
 
     setGameState(prev => ({
       ...prev,
-      playerHand: sortHand(newHand), // 棄牌後手牌剩13張，重新排序
+      playerHand: sortHand(newHand),
       playerDiscards: updatedDiscards,
       isPlayerFuriten: isNowFuriten,
       isPlayerReach: reachStatus,
@@ -249,8 +449,6 @@ const App: React.FC = () => {
 
     const cpuDifficulty = gameState.selectedInstructor?.difficulty || 1;
     
-    // CPU 決策：先看能不能胡玩家棄的那張 (榮和)
-    // 復原：移除 CPU 人和判斷，避免隨機牌型被誤判為人和
     const cpuWin = calculateFinalScore(
         [...gameState.cpuHand, discarded], 
         gameState.cpuMelds, 
@@ -262,34 +460,30 @@ const App: React.FC = () => {
 
     if (cpuWin) {
       setTimeout(() => {
-        // 移除此處的 playSound('win')，改由 useEffect 觸發
         setGameState(prev => ({
           ...prev,
-          // phase 保持 PLAYING，等待動畫結束才切換
           cpuScore: prev.cpuScore + cpuWin.points,
           playerScore: prev.playerScore - cpuWin.points,
           winningHand: { ...cpuWin, winner: 'cpu' },
           message: `${prev.selectedInstructor?.name}：胡牌！畢業了！`,
           isWinAnimation: true
         }));
-      }, 800);
+      }, 500); 
       return;
     }
 
-    // 再看能不能鳴牌 (吃、碰)
     if (!gameState.isCpuReach) {
       if (canPon(gameState.cpuHand, discarded) && shouldCPUCall(gameState.cpuHand, gameState.cpuMelds, discarded, 'pon', cpuDifficulty)) {
-        setTimeout(() => cpuCall('pon', discarded), 800);
+        setTimeout(() => cpuCall('pon', discarded), 500); 
         return;
       }
       if (canChi(gameState.cpuHand, discarded) && shouldCPUCall(gameState.cpuHand, gameState.cpuMelds, discarded, 'chi', cpuDifficulty)) {
-        setTimeout(() => cpuCall('chi', discarded), 800);
+        setTimeout(() => cpuCall('chi', discarded), 500); 
         return;
       }
     }
 
-    // 都沒發生則輪到 CPU 摸牌，改用 cpuDraw 啟動摸牌與思考流程
-    setTimeout(cpuDraw, 1000);
+    setTimeout(cpuDraw, 500);
   };
 
   const cpuCall = (type: 'pon' | 'chi', tile: Tile) => {
@@ -315,377 +509,28 @@ const App: React.FC = () => {
       return {
         ...prev,
         cpuHand: sortHand(newHand),
-        cpuMelds: [...prev.cpuMelds, { type, tiles: newMeld, isClosed: false }], // CPU calls are always open
+        cpuMelds: [...prev.cpuMelds, { type, tiles: newMeld, isClosed: false }],
         message: `${prev.selectedInstructor?.name}：${type === 'pon' ? '碰' : '吃'}！`,
         currentTurn: 'cpu'
       };
     });
-    // CPU 鳴牌後必須進行棄牌 (維持原邏輯，這裡不需要長時間思考)
-    setTimeout(cpuDiscard, 1000);
-  };
-
-  // NEW: CPU 摸牌階段 (包含特殊技能觸發邏輯)
-  const cpuDraw = () => {
-    setGameState(prev => {
-      if (prev.deck.length === 0) return { ...prev, phase: GamePhase.RESULT, message: "流局！" };
-      
-      // === CPU SPECIAL SKILL LOGIC START ===
-      const instructor = prev.selectedInstructor;
-      const discardCount = prev.cpuDiscards.length;
-      const usedCount = prev.skillUsedCount;
-      const maxUses = instructor?.maxSkillUses || 0;
-      
-      // 判斷是否觸發老師絕技：
-      // 1. 老師有設定 specialSkillChance 且 maxSkillUses
-      // 2. 已打出至少 2 張牌
-      // 3. 本局絕技使用次數未達上限
-      // 4. 機率判定通過
-      if (instructor && instructor.specialSkillChance && maxUses > 0 && 
-          discardCount >= 2 && usedCount < maxUses) {
-          
-          if (Math.random() < instructor.specialSkillChance) {
-              // 觸發絕技
-              playSound('skill');
-              
-              // 計算分數上限：不超過玩家目前點數的 2/3 (保護機制)
-              const limitScore = Math.floor(prev.playerScore * 2 / 3);
-              const godHandData = generateSpecialHand(limitScore);
-              
-              // 設置延遲後執行絕技胡牌結算
-              setTimeout(() => {
-                  executeCpuSkillWin(godHandData);
-              }, 1500); // 稍微停頓讓玩家看到訊息
-
-              return {
-                  ...prev,
-                  cpuHand: godHandData.hand,
-                  cpuMelds: [], // 絕技通常是門清或特定牌型，這裡清空副露以配合 GodHand
-                  isCpuReach: false, // 重置立直狀態避免邏輯衝突
-                  message: `${instructor.name}：發動絕技【${godHandData.yakuName}】！`,
-                  currentTurn: 'cpu',
-                  skillUsedCount: prev.skillUsedCount + 1, // 增加使用次數
-              };
-          }
-      }
-      // === CPU SPECIAL SKILL LOGIC END ===
-
-      playSound('draw');
-      const newDeck = [...prev.deck];
-      const drawn = newDeck.pop()!;
-      // CPU 手牌包含剛摸到的第14張，注意：此處故意不排序 (sortHand)，讓最後一張顯示在右側
-      const fullHand = [...prev.cpuHand, drawn];
-      
-      // 模擬思考時間，1.0秒後執行決策
-      setTimeout(cpuDecide, 1000);
-
-      return { ...prev, cpuHand: fullHand, deck: newDeck, currentTurn: 'cpu' };
-    });
-  };
-
-  // 執行 CPU 絕技胡牌結算 (獨立於 cpuDecide，強制使用 GodHand 數據)
-  const executeCpuSkillWin = (godHandData: { hand: Tile[], yakuName: string, fan: number }) => {
-    setGameState(prev => {
-        // 使用 calculateFinalScore 並強制帶入絕技名稱與番數
-        const winResult = calculateFinalScore(
-            godHandData.hand, 
-            [], 
-            true, // isTsumo
-            prev.isCpuReach, 
-            prev.doraIndicator, 
-            true, // isDealer (CPU 通常假定是莊家或者不重要，這裡給 true 增加壓力)
-            true, // isSkill
-            godHandData.yakuName,
-            godHandData.fan
-        );
-
-        if (winResult) {
-            return {
-                ...prev,
-                cpuScore: prev.cpuScore + winResult.points,
-                playerScore: prev.playerScore - winResult.points,
-                winningHand: { ...winResult, winner: 'cpu' },
-                message: `${prev.selectedInstructor?.name}：絕技自摸！`,
-                isWinAnimation: true
-            };
-        }
-        return prev;
-    });
-  };
-
-  // NEW: CPU 決策階段 (判斷自摸、立直、棄牌)
-  const cpuDecide = () => {
-    setGameState(prev => {
-      // 此時手牌最後一張為剛摸進的
-      const fullHand = [...prev.cpuHand];
-
-      // 1. 檢查 CPU 是否自摸
-      // 復原：移除 CPU 地和判定，恢復正常邏輯
-      const winResult = calculateFinalScore(
-          fullHand, 
-          prev.cpuMelds, 
-          true, 
-          prev.isCpuReach, 
-          prev.doraIndicator, 
-          true
-      );
-
-      if (winResult) {
-        return {
-          ...prev,
-          cpuScore: prev.cpuScore + winResult.points,
-          playerScore: prev.playerScore - winResult.points,
-          winningHand: { ...winResult, winner: 'cpu' },
-          message: `${prev.selectedInstructor?.name}：自摸！感謝招待！`,
-          isWinAnimation: true
-        };
-      }
-
-      // 2. 檢查 CPU 是否可以立直 (與是否決定立直)
-      // 修正：必須先棄牌後才能立直，這裡預判打掉某張牌後是否聽牌
-      let isNowReach = prev.isCpuReach;
-      if (!isNowReach && prev.cpuMelds.length === 0) {
-          const bestDiscardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
-          const tempHand = fullHand.filter((_, i) => i !== bestDiscardIdx);
-          
-          if (calculateShanten(tempHand, prev.cpuMelds) === 0) {
-             const waiters = getWaitingTiles(tempHand, prev.cpuMelds);
-             if (waiters.length > 0 && Math.random() > 0.4) {
-                 isNowReach = true;
-             }
-          }
-      }
-
-      // 3. 執行棄牌計算
-      let discardIdx = 0;
-      if (isNowReach) {
-        discardIdx = fullHand.length - 1; 
-      } else {
-        discardIdx = getBestDiscard(fullHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
-      }
-
-      playSound('discard');
-      const newHand = [...fullHand];
-      const discarded = newHand.splice(discardIdx, 1)[0];
-      const updatedDiscards = [...prev.cpuDiscards, discarded];
-
-      // 4. 判定玩家是否可以鳴牌或榮和
-      const canRonRes = calculateFinalScore([...prev.playerHand, discarded], prev.playerMelds, false, prev.isPlayerReach, prev.doraIndicator);
-      const calls: CallActions = {
-        ron: !!canRonRes && !prev.isPlayerFuriten,
-        pon: canPon(prev.playerHand, discarded) && !prev.isPlayerReach,
-        chi: canChi(prev.playerHand, discarded) && !prev.isPlayerReach,
-        kan: canKan(prev.playerHand, discarded) && !prev.isPlayerReach
-      };
-
-      const hasCall = Object.values(calls).some(v => v);
-      if (!hasCall) setTimeout(playerDraw, 800);
-
-      const msg = isNowReach && !prev.isCpuReach ? `${prev.selectedInstructor?.name}：立直！` : (Math.random() < 0.7 ? getInstructorDialogue() : prev.message);
-
-      return {
-        ...prev,
-        cpuHand: sortHand(newHand),
-        cpuDiscards: updatedDiscards,
-        lastDiscardTile: discarded,
-        pendingCall: hasCall ? calls : null,
-        currentTurn: 'player',
-        isCpuReach: isNowReach,
-        message: msg
-      };
-    });
-  };
-
-  // 舊的 cpuDiscard 函式保留給 cpuCall 使用 (鳴牌後的棄牌不需要自摸判斷)
-  const cpuDiscard = () => {
-    setGameState(prev => {
-      let discardIdx = 0;
-      // 鳴牌後不能立直，且鳴牌當下一定是自己的回合
-      discardIdx = getBestDiscard(prev.cpuHand, prev.cpuMelds, prev.selectedInstructor?.difficulty || 1, prev.playerDiscards, prev.isPlayerReach);
-
-      playSound('discard');
-      const newHand = [...prev.cpuHand];
-      const discarded = newHand.splice(discardIdx, 1)[0];
-      const updatedDiscards = [...prev.cpuDiscards, discarded];
-
-      const canRonRes = calculateFinalScore([...prev.playerHand, discarded], prev.playerMelds, false, prev.isPlayerReach, prev.doraIndicator);
-      const calls: CallActions = {
-        ron: !!canRonRes && !prev.isPlayerFuriten,
-        pon: canPon(prev.playerHand, discarded) && !prev.isPlayerReach,
-        chi: canChi(prev.playerHand, discarded) && !prev.isPlayerReach,
-        kan: canKan(prev.playerHand, discarded) && !prev.isPlayerReach
-      };
-
-      const hasCall = Object.values(calls).some(v => v);
-      if (!hasCall) setTimeout(playerDraw, 800);
-
-      return {
-        ...prev,
-        cpuHand: sortHand(newHand),
-        cpuDiscards: updatedDiscards,
-        lastDiscardTile: discarded,
-        pendingCall: hasCall ? calls : null,
-        currentTurn: 'player',
-        message: Math.random() < 0.7 ? getInstructorDialogue() : prev.message
-      };
-    });
-  };
-
-  const handleCall = (action: keyof CallActions | 'PASS', selectedTiles?: Tile[]) => {
-    // 1. Handle PASS
-    if (action === 'PASS') {
-      const handCount = gameState.playerHand.length;
-      if (handCount % 3 === 2) {
-        // Player's turn (14 tiles) - e.g. Pass Kan
-        setGameState(prev => ({ ...prev, pendingCall: null, chiCombinations: null }));
-      } else {
-        // Opponent's discard (13 tiles) - e.g. Pass Pon/Chi
-        setGameState(prev => ({ ...prev, pendingCall: null, chiCombinations: null }));
-        playerDraw();
-      }
-      return;
-    }
-    
-    // 2. Safety Check: Determine if lastDiscardTile is needed
-    // 自摸時 (ron action + 14 tiles) 不需要 lastDiscardTile
-    const isTsumoCall = action === 'ron' && gameState.playerHand.length % 3 === 2;
-    
-    if (!isTsumoCall && !gameState.lastDiscardTile) {
-        // console.error("Missing lastDiscardTile for action:", action);
-        return;
-    }
-
-    const tile = isTsumoCall ? gameState.playerHand[gameState.playerHand.length-1] : gameState.lastDiscardTile!;
-
-    if (action === 'ron') {
-      const isTsumoAction = gameState.playerHand.length % 3 === 2; // 使用模數判斷是否為自摸
-      const finalHand = isTsumoAction ? [...gameState.playerHand] : [...gameState.playerHand, tile];
-      
-      // 判定天和 (Tenhou): 玩家在第一回合自摸
-      const isTenhou = isTsumoAction && gameState.playerDiscards.length === 0 && gameState.playerMelds.length === 0;
-      
-      // 判定人和 (Renhou): 玩家在對手打出第一張牌時胡牌
-      // 注意：gameState.cpuDiscards 此時已包含剛打出的這張牌，所以長度為 1
-      const isRenhou = !isTsumoAction && gameState.cpuDiscards.length === 1 && gameState.playerMelds.length === 0;
-      
-      const accumulate = isTenhou || isRenhou;
-
-      const result = calculateFinalScore(
-          finalHand, 
-          gameState.playerMelds, 
-          isTsumoAction, 
-          gameState.isPlayerReach, 
-          gameState.doraIndicator,
-          false, // isDealer
-          false, // isSkill
-          isTenhou ? '天和' : (isRenhou ? '人和' : undefined),
-          isTenhou ? 13 : (isRenhou ? 8 : undefined),
-          accumulate // accumulate flag
-      );
-
-      if (result) {
-        // 移除 playSound('win')
-        const cpuNewScore = gameState.cpuScore - result.points;
-        if (gameState.selectedInstructor && cpuNewScore <= 0) {
-            saveProgress(gameState.selectedInstructor.id);
-        }
-        setGameState(prev => ({
-          ...prev,
-          // phase 保持 PLAYING
-          playerScore: prev.playerScore + result.points,
-          cpuScore: cpuNewScore,
-          winningHand: { ...result, winner: 'player' },
-          message: isTsumoAction ? "自摸！胡牌！" : "榮和！胡牌！",
-          isWinAnimation: true,
-          chiCombinations: null
-        }));
-      }
-      return;
-    }
-    if (action === 'kan') {
-      playSound('call');
-      setGameState(prev => {
-        let newHand = [...prev.playerHand];
-        let newMelds = [...prev.playerMelds];
-        const matchingInHand = newHand.filter(t => t.type === tile.type && t.value === tile.value);
-        
-        if (matchingInHand.length === 4) { // 暗槓
-          const toRemove = matchingInHand.map(m => m.id);
-          newHand = newHand.filter(t => !toRemove.includes(t.id));
-          newMelds.push({ type: 'kan', tiles: matchingInHand, isClosed: true }); // Ankan is Closed
-        } else if (matchingInHand.length === 3) { // 明槓
-          const toRemove = matchingInHand.map(m => m.id);
-          newHand = newHand.filter(t => !toRemove.includes(t.id));
-          newMelds.push({ type: 'kan', tiles: [...matchingInHand, tile], isClosed: false }); // Daiminkan is Open
-        } else { // 加槓
-          const ponIdx = newMelds.findIndex(m => m.type === 'pon' && m.tiles[0].type === tile.type && m.tiles[0].value === tile.value);
-          if (ponIdx !== -1) {
-            newMelds[ponIdx] = { type: 'kan', tiles: [...newMelds[ponIdx].tiles, tile], isClosed: false }; // Kakan is Open
-            newHand = newHand.filter(t => t.id !== tile.id);
-          }
-        }
-        setTimeout(playerDraw, 500);
-        return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, chiCombinations: null, currentTurn: 'player', message: "槓！嶺上補牌！" };
-      });
-      return;
-    }
-    
-    // 吃牌邏輯更新
-    if (action === 'chi') {
-        // 如果沒有指定特定的牌，則先檢查是否有多的組合
-        if (!selectedTiles) {
-            const chiCombos = getChiCombinations(gameState.playerHand, tile);
-            
-            // 如果有多種組合，則進入選擇模式
-            if (chiCombos.length > 1) {
-                setGameState(prev => ({ ...prev, chiCombinations: chiCombos }));
-                return;
-            }
-            
-            // 如果只有一種，自動選擇第一種
-            if (chiCombos.length === 1) {
-                selectedTiles = chiCombos[0];
-            } else {
-                return; // 不可能發生，但以防萬一
-            }
-        }
-        // 如果有 selectedTiles，則繼續執行吃牌邏輯 (向下流動)
-    }
-
-    playSound('call');
-    setGameState(prev => {
-      let newHand = [...prev.playerHand];
-      let newMelds = [...prev.playerMelds];
-      
-      if (action === 'pon') {
-        const matches = newHand.filter(t => t.type === tile.type && t.value === tile.value).slice(0, 2);
-        newHand = newHand.filter(t => !matches.some(m => m.id === t.id));
-        newMelds.push({ type: 'pon', tiles: [...matches, tile], isClosed: false });
-      } else if (action === 'chi' && selectedTiles) {
-        // 使用玩家選擇的特定牌組來進行吃牌
-        // 從手牌中移除這兩張選定的牌
-        newHand = newHand.filter(t => !selectedTiles.some(selected => selected.id === t.id));
-        // 確保排序： [小, 中, 大]
-        const meldTiles = [...selectedTiles, tile].sort((a,b) => a.value - b.value);
-        newMelds.push({ type: 'chi', tiles: meldTiles, isClosed: false });
-      }
-      
-      return { ...prev, playerHand: sortHand(newHand), playerMelds: newMelds, pendingCall: null, chiCombinations: null, currentTurn: 'player' };
-    });
+    setTimeout(cpuDiscard, 500);
   };
 
   const useSkill = (skillType: string) => {
-    // 立直現在不需要能量，且不扣能量
+    if (skillType === 'CHEAT_CHARGE') {
+      setGameState(prev => ({ ...prev, playerEnergy: 300 }));
+      return;
+    }
+
     if (skillType === 'REACH') {
       playSound('skill');
       setIsPendingReach(true);
-      // 移除扣能與檢查邏輯，並設定訊息
-      // FIX: 強制清除 pendingCall，避免因暗槓後連續抽到槓牌機會而導致卡死（立直後只能棄牌，不能槓）
       setGameState(prev => ({ ...prev, message: "宣告立直！", pendingCall: null }));
 
     } else if (skillType === 'TSUMO' && gameState.playerEnergy >= 100) {
       playSound('skill');
       
-      // 玩家使用絕技時不限分數，保持爽快感
       const godHandData = generateSpecialHand(); 
       const newHand = godHandData.hand;
       
@@ -728,7 +573,6 @@ const App: React.FC = () => {
         }
       }, 2000);
 
-    // Update Exchange skill cost to 40
     } else if (skillType === 'EXCHANGE' && gameState.playerEnergy >= 40) {
       if (gameState.playerHand.length % 3 !== 2) return;
       playSound('skill');
@@ -737,18 +581,13 @@ const App: React.FC = () => {
         let drawn: Tile;
         let msg = "換牌術發動！";
 
-        // 手牌最後一張是剛摸到的，前 n-1 張是手牌主體
         const lastIndex = prev.playerHand.length - 1;
         const handWithoutLast = prev.playerHand.slice(0, lastIndex);
         const waiters = getWaitingTiles(handWithoutLast, prev.playerMelds);
         
-        // 如果立直，高機率換到聽牌
         let forcedWin = false;
-        // 修正：必須包含 pendingReach 的判斷，因為按下立直後還未棄牌，prev.isPlayerReach 為 false
         if ((prev.isPlayerReach || isPendingReach) && waiters.length > 0) {
-            // 70% 機率直接抽到胡牌的牌
             if (Math.random() < 0.70) {
-                // 優先檢查牌山中是否有聽的牌
                 const deckCandidates = waiters.filter(w => {
                     const t = w[0] as any;
                     const v = parseInt(w.slice(1));
@@ -756,7 +595,6 @@ const App: React.FC = () => {
                 });
                 
                 if (deckCandidates.length > 0) {
-                     // 隨機選一個現有的聽牌
                      const targetWait = deckCandidates[Math.floor(Math.random() * deckCandidates.length)];
                      const targetType = targetWait[0] as any;
                      const targetValue = parseInt(targetWait.slice(1));
@@ -768,7 +606,6 @@ const App: React.FC = () => {
                          forcedWin = true;
                      }
                 } else {
-                    // 如果牌山沒這張牌（被自己打光了或在對手手裡），直接虛空創造一張
                     const targetWait = waiters[Math.floor(Math.random() * waiters.length)];
                     const targetType = targetWait[0] as any;
                     const targetValue = parseInt(targetWait.slice(1));
@@ -781,16 +618,13 @@ const App: React.FC = () => {
         }
         
         if (!forcedWin) {
-          // 一般換牌或運氣不好沒換到
           newDeck = newDeck.sort(() => Math.random() - 0.5);
           drawn = newDeck.pop()!;
         }
 
-        // 拿回剛摸到的最後一張牌 放回牌庫
         const lastTile = prev.playerHand[lastIndex];
         newDeck.push(lastTile);
         
-        // 構造新手牌：前 n-1 張重新排序，最後一張替換為新換到的牌
         const sortedBase = sortHand(handWithoutLast);
         const newHand = [...sortedBase, drawn];
 
@@ -798,23 +632,19 @@ const App: React.FC = () => {
           ...prev, 
           playerHand: newHand, 
           deck: newDeck, 
-          // Deduct 40 Energy
           playerEnergy: prev.playerEnergy - 40, 
           message: msg 
         };
       });
     } else if (skillType === 'AMATERASU' && gameState.playerEnergy >= 300) {
-      // 天照大神技能
       playSound('skill');
       const amaterasuResult = generateAmaterasuHand();
       
       setGameState(prev => {
-        // 設定手牌，以視覺效果為主
         const newHand = amaterasuResult.hand;
         const newMelds = amaterasuResult.melds;
         
-        // 直接結束遊戲
-        const cpuNewScore = Math.max(0, prev.cpuScore - 100000); // 確保歸零，雖然分數通常遠超
+        const cpuNewScore = Math.max(0, prev.cpuScore - 100000); 
         
         if (prev.selectedInstructor && cpuNewScore <= 0) {
            saveProgress(prev.selectedInstructor.id);
@@ -824,9 +654,9 @@ const App: React.FC = () => {
            ...prev,
            playerEnergy: prev.playerEnergy - 300,
            playerHand: newHand,
-           playerMelds: newMelds, // 如果有偽造的副露
-           playerScore: prev.playerScore + amaterasuResult.points, // 雖然可能破表，但就讓它顯示吧
-           cpuScore: cpuNewScore, // 擊飛
+           playerMelds: newMelds, 
+           playerScore: prev.playerScore + amaterasuResult.points, 
+           cpuScore: cpuNewScore, 
            winningHand: amaterasuResult,
            isWinAnimation: true,
            message: "禁忌·天照大神！森羅萬象灰飛煙滅！"
@@ -836,21 +666,17 @@ const App: React.FC = () => {
   };
 
   const handleNextRound = () => {
-    // ... (same as before)
     if (!gameState.selectedInstructor) {
       setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }));
       return;
     }
     
-    // 雙重保險：如果在結果畫面 CPU 分數歸零，確保進度被儲存
     if (gameState.cpuScore <= 0 && gameState.selectedInstructor) {
         saveProgress(gameState.selectedInstructor.id);
     }
 
     if (gameState.cpuScore <= 0) {
-        // Player Won Stage
         const currentId = gameState.selectedInstructor.id;
-        // Check for Game Clear (All instructors)
         const allClearedIds = new Set(graduatedIds);
         allClearedIds.add(currentId);
         
@@ -859,24 +685,21 @@ const App: React.FC = () => {
              return;
         }
 
-        // Enter Stage Clear Phase
         setGameState(prev => ({ ...prev, phase: GamePhase.STAGE_CLEAR }));
         return;
     } 
     
     if (gameState.playerScore <= 0) {
-        // Player Lost
         setGameState(prev => ({ 
             ...prev, 
             phase: GamePhase.SELECT_OPPONENT, 
             playerScore: 25000, 
             cpuScore: 25000,
-            playerEnergy: 100 // Reset energy
+            playerEnergy: 100 
         }));
         return;
     }
 
-    // Continue match
     startNewRound(
         gameState.selectedInstructor, 
         gameState.playerScore, 
@@ -886,18 +709,15 @@ const App: React.FC = () => {
     );
   };
 
-  // 格式化大數值為科學符號
   const formatLargeNumber = (num: number) => {
     if (num < 100000000) return num.toLocaleString();
     const exponent = Math.floor(Math.log10(num));
-    // 解決精度問題，使用簡單的除法
     const mantissa = (num / Math.pow(10, exponent)).toFixed(2);
     return <>{mantissa} × 10<sup className="text-4xl ml-1">{exponent}</sup></>;
   };
 
   return (
     <>
-        {/* Rotate Device Overlay */}
         <div className={`fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center text-white transition-opacity duration-300 ${isPortrait ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
              <div className="animate-pulse flex flex-col items-center">
                 <div className="w-16 h-24 border-4 border-white rounded-lg mb-4 animate-spin-slow"></div>
@@ -916,7 +736,6 @@ const App: React.FC = () => {
              `}</style>
         </div>
 
-        {/* Scaled Game Container */}
         <div className="fixed inset-0 bg-black flex items-center justify-center overflow-hidden serif-font">
             <div style={
                 layoutDims.needsScaling ? {
@@ -931,7 +750,6 @@ const App: React.FC = () => {
                     height: '100%'
                 }
             }>
-                {/* Render Content */}
                 {gameState.isWinAnimation && (
                     <div className="absolute inset-0 z-[500] flex items-center justify-center bg-black/60 pointer-events-none">
                     <div className="relative animate-impact-zoom">
@@ -995,11 +813,24 @@ const App: React.FC = () => {
                     </h2>
                     <div className="grid grid-cols-3 gap-10 max-w-6xl mx-auto overflow-y-auto pr-4 custom-scrollbar p-4 flex-1 min-h-0">
                         {INSTRUCTORS.map(inst => (
-                        <div key={inst.id} onClick={() => startNewRound(inst, 25000, 25000 + (inst.id - 1) * 5000, gameState.playerEnergy)} className="group bg-zinc-900 border-4 border-zinc-700 p-2 flex flex-col items-center cursor-pointer hover:border-yellow-500 transform hover:scale-105 transition-all relative overflow-hidden flex-shrink-0 shadow-xl">
+                        <div 
+                            key={inst.id} 
+                            onClick={() => {
+                                if (graduatedIds.includes(inst.id)) {
+                                    setGameState(prev => ({ 
+                                        ...prev, 
+                                        selectedInstructor: inst,
+                                        phase: GamePhase.STAGE_CLEAR 
+                                    }));
+                                } else {
+                                    startNewRound(inst, 25000, 25000 + (inst.id - 1) * 5000, gameState.playerEnergy);
+                                }
+                            }} 
+                            className="group bg-zinc-900 border-4 border-zinc-700 p-2 flex flex-col items-center cursor-pointer hover:border-yellow-500 transform hover:scale-105 transition-all relative overflow-hidden flex-shrink-0 shadow-xl"
+                        >
                             {graduatedIds.includes(inst.id) && (
                             <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none select-none">
                                 <div className="relative flex flex-col items-center animate-stamp">
-                                {/* 強化版紅色印章效果：文字 + 邊框 */}
                                 <div className="border-[8px] border-red-600 text-red-600 font-black text-6xl px-10 py-3 rounded-xl bg-black/90 backdrop-blur-md shadow-[0_0_40px_rgba(220,38,38,0.8)] border-double tracking-widest uppercase flex flex-col items-center rotate-[-15deg]">
                                     <span>CLEAR</span>
                                     <span className="text-xl mt-[-5px] bg-red-600 text-white px-2 rounded-sm">GRADUATED</span>
@@ -1008,7 +839,6 @@ const App: React.FC = () => {
                             </div>
                             )}
                             
-                            {/* Modified Image Section with Name Overlay - Removed description and stars */}
                             <div className="relative w-full h-[400px] bg-zinc-800 rounded border border-zinc-600 group-hover:border-yellow-500 overflow-hidden">
                                 <img src={inst.avatar} className={`w-full h-full object-cover object-[50%_25%] ${graduatedIds.includes(inst.id) ? 'grayscale opacity-30' : ''}`} />
                                 <div className="absolute bottom-0 left-0 w-full pb-3 pt-12 bg-gradient-to-t from-white/90 via-white/50 to-transparent">
@@ -1046,45 +876,37 @@ const App: React.FC = () => {
                 )}
 
                 {gameState.phase === GamePhase.RESULT && (() => {
-                    // 判斷是否為天照大神或超高分牌型
                     const isAmaterasu = gameState.winningHand?.yaku.some(y => y.name.includes('天照')) || (gameState.winningHand?.points ?? 0) > 100000;
 
                     return (
                     <div className={`absolute inset-0 bg-black/95 z-[200] flex ${isAmaterasu ? '' : 'flex-col items-center justify-center'} p-10`}>
                     
-                    {/* Top Score Board (Always Top Left) */}
                     <div className="absolute top-10 left-10 flex gap-10 z-10">
                         <div className="text-white text-3xl font-black">玩家: <span className="text-yellow-500">{gameState.playerScore}</span></div>
                         <div className="text-white text-3xl font-black italic">VS</div>
                         <div className="text-white text-3xl font-black">老師: <span className="text-red-500">{gameState.cpuScore}</span></div>
                     </div>
                     
-                    {/* Title */}
                     <h2 className={`text-9xl font-black mb-6 drop-shadow-lg ${isAmaterasu ? 'absolute bottom-10 right-10 z-0 opacity-50 text-[8rem]' : 'relative'} ${gameState.winningHand?.winner === 'player' ? 'text-yellow-500 animate-bounce' : 'text-red-600'}`}>
                         {gameState.winningHand ? (gameState.winningHand.winner === 'player' ? '和了' : '老師胡牌!') : '流局'}
                     </h2>
 
-                    {/* Amaterasu Mode: Next Round Button Top Right */}
                     {isAmaterasu && (
                         <div className="absolute top-10 right-10 z-50">
-                            <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-12 py-4 text-3xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all shadow-[0_0_30px_rgba(220,38,38,0.5)]">
-                                {gameState.cpuScore <= 0 ? '挑戰成功：返回老師選擇' : 'NEXT ROUND'}
+                            <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-12 py-4 text-3xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all shadow-[0_0_30px_rgba(220,38,38,0.5)] animate-pulse">
+                                {gameState.cpuScore <= 0 ? '挑戰成功' : 'NEXT ROUND'}
                             </button>
                         </div>
                     )}
 
-                    {/* Main Content Wrapper */}
                     <div className={`w-full flex flex-col ${isAmaterasu ? 'mt-32 h-full' : 'items-center'}`}>
 
-                        {/* Hand Tiles */}
                         <div className={`flex justify-center items-end gap-2 mb-10 overflow-x-auto max-w-full bg-white/5 p-6 rounded-xl border border-white/10 flex-wrap ${isAmaterasu ? 'mx-auto scale-90 origin-top' : ''}`}>
                             <div className="flex gap-1">
-                                {/* Standing Tiles (Sorted) */}
                                 {sortHand(gameState.winningHand?.hand || []).map((t, i) => (
                                     <MahjongTile key={i} tile={t} size="md" className="pointer-events-none" />
                                 ))}
                             </div>
-                            {/* Melds (If any) */}
                             {gameState.winningHand?.melds && gameState.winningHand.melds.length > 0 && (
                                 <div className="flex gap-4 ml-6 pl-6 border-l-2 border-white/10">
                                     {gameState.winningHand.melds.map((meld, i) => (
@@ -1097,8 +919,6 @@ const App: React.FC = () => {
                             {!gameState.winningHand && <span className="text-4xl text-white/50 font-bold">流局</span>}
                         </div>
 
-                        {/* Yaku & Points */}
-                        {/* 如果是天照大神，使用 Grid 布局雙欄顯示，並限制高度允許捲動 */}
                         <div className={`${isAmaterasu ? 'grid grid-cols-2 gap-x-12 gap-y-1 w-full max-w-6xl px-10 overflow-y-auto max-h-[45vh] pr-4 custom-scrollbar' : 'flex flex-col items-center text-center mb-10 min-h-[120px]'}`}>
                             {gameState.winningHand?.yaku.map(y => (
                             <div key={y.name} className={`font-black italic ${isAmaterasu ? 'text-3xl text-left border-b border-white/10 pb-1' : 'text-4xl mb-2'} ${y.name.includes('懸賞') || y.name.includes('絕技') || y.name.includes('寶牌') ? 'text-orange-400' : 'text-yellow-400'}`}>
@@ -1108,7 +928,6 @@ const App: React.FC = () => {
                             ))}
                         </div>
                         
-                        {/* Points Display - Fixed at bottom left for Amaterasu */}
                         {gameState.winningHand && (
                         <div className={`text-white font-black mt-6 border-t-2 border-white/20 pt-4 ${isAmaterasu ? 'absolute bottom-10 left-10 text-8xl z-50 drop-shadow-xl' : 'text-6xl text-center'}`}>
                             {gameState.winningHand.fu}符 {gameState.winningHand.fan}番：{
@@ -1120,11 +939,12 @@ const App: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Normal Mode: Button Bottom */}
                     {!isAmaterasu && (
-                        <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-20 py-6 text-4xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all">
-                            {gameState.cpuScore <= 0 ? '挑戰成功：返回老師選擇' : 'NEXT ROUND'}
-                        </button>
+                        <div className="absolute bottom-10 right-10 z-50">
+                            <button onClick={handleNextRound} className="bg-red-700 hover:bg-red-600 text-white px-20 py-6 text-4xl font-black rounded-lg border-b-8 border-red-900 active:border-b-0 active:translate-y-2 transition-all animate-pulse">
+                                {gameState.cpuScore <= 0 ? '挑戰成功' : 'NEXT ROUND'}
+                            </button>
+                        </div>
                     )}
 
                     </div>
@@ -1138,9 +958,12 @@ const App: React.FC = () => {
                             className="w-full h-full object-contain"
                             alt="Stage Clear"
                         />
-                        <div className="absolute bottom-10 right-10 flex flex-col items-end">
-                            <h2 className="text-6xl font-black text-yellow-400 drop-shadow-[0_0_10px_rgba(0,0,0,0.8)] animate-pulse mb-2">STAGE CLEAR</h2>
-                            <p className="text-2xl text-white font-bold drop-shadow-md">即將返回選擇畫面...</p>
+                        <div className="absolute bottom-10 w-full flex justify-center">
+                            <div className="bg-black/70 px-8 py-4 rounded-full border border-yellow-500/30 backdrop-blur-md shadow-[0_0_20px_rgba(0,0,0,0.8)]">
+                                <p className="text-3xl text-yellow-100 font-black tracking-widest drop-shadow-md text-center italic">
+                                    {STAGE_CLEAR_DIALOGUES[gameState.selectedInstructor?.id || 1]}
+                                </p>
+                            </div>
                         </div>
                     </div>
                 )}

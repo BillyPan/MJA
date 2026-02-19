@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, GamePhase, Instructor, Tile, CallActions, Meld, WinningResult } from './types';
 import { INSTRUCTORS, createDeck } from './constants';
-import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateSpecialHand, getChiCombinations, generateAmaterasuHand } from './services/mahjongEngine';
+import { sortHand, checkWin, calculateFinalScore, getWaitingTiles, isFuriten, canPon, canChi, canKan, checkOwnTurnKan, getBestDiscard, shouldCPUCall, calculateShanten, generateSpecialHand, getChiCombinations, generateAmaterasuHand, generateLuckyStart } from './services/mahjongEngine';
 import { getInstructorDialogue } from './services/gemini';
 import MahjongGame from './components/MahjongGame';
 import MahjongTile from './components/MahjongTile';
@@ -113,7 +113,23 @@ const App: React.FC = () => {
   // 修改：增加 existingSkillCount 參數，預設為 0
   const startNewRound = (instructor: Instructor, pScore: number, cScore: number, pEnergy: number, existingSkillCount: number = 0) => {
     const deck = createDeck();
-    const playerHand = sortHand(deck.splice(0, 13));
+    let playerHand: Tile[];
+    let initMsg = `${instructor.name}：請多指教囉！`;
+
+    // 80% 機率觸發好手氣
+    if (Math.random() < 0.80) {
+        const luckyResult = generateLuckyStart(deck);
+        if (luckyResult) {
+            playerHand = luckyResult.hand;
+            initMsg = `${instructor.name}：【好手氣】起手牌不錯喔！`;
+        } else {
+            // 生成失敗回退
+            playerHand = sortHand(deck.splice(0, 13));
+        }
+    } else {
+        playerHand = sortHand(deck.splice(0, 13));
+    }
+
     const cpuHand = sortHand(deck.splice(0, 13));
     const doraIndicator = deck.pop()!;
     setIsPendingReach(false);
@@ -139,7 +155,7 @@ const App: React.FC = () => {
       isCpuReach: false,
       isPlayerFuriten: false,
       winningHand: undefined,
-      message: `${instructor.name}：請多指教囉！`,
+      message: initMsg,
       pendingCall: null,
       chiCombinations: null,
       lastDiscardTile: null,
@@ -158,6 +174,8 @@ const App: React.FC = () => {
       // 注意：摸進來的牌直接加在最後，不可 sort 14 張
       const newHand = [...prev.playerHand, drawn];
       const kanTile = checkOwnTurnKan(newHand, prev.playerMelds);
+      
+      // 判定是否可自摸 (此時還未確定是否天和，僅檢查手牌是否完成)
       const canTsumoRes = calculateFinalScore(newHand, prev.playerMelds, true, prev.isPlayerReach, prev.doraIndicator);
       
       const calls: CallActions = { ron: false, pon: false, chi: false, kan: !!kanTile };
@@ -211,7 +229,16 @@ const App: React.FC = () => {
     const cpuDifficulty = gameState.selectedInstructor?.difficulty || 1;
     
     // CPU 決策：先看能不能胡玩家棄的那張 (榮和)
-    const cpuWin = calculateFinalScore([...gameState.cpuHand, discarded], gameState.cpuMelds, false, gameState.isCpuReach, gameState.doraIndicator, true);
+    // 復原：移除 CPU 人和判斷，避免隨機牌型被誤判為人和
+    const cpuWin = calculateFinalScore(
+        [...gameState.cpuHand, discarded], 
+        gameState.cpuMelds, 
+        false, 
+        gameState.isCpuReach, 
+        gameState.doraIndicator, 
+        true
+    );
+
     if (cpuWin) {
       setTimeout(() => {
         // 移除此處的 playSound('win')，改由 useEffect 觸發
@@ -371,7 +398,16 @@ const App: React.FC = () => {
       const fullHand = [...prev.cpuHand];
 
       // 1. 檢查 CPU 是否自摸
-      const winResult = calculateFinalScore(fullHand, prev.cpuMelds, true, prev.isCpuReach, prev.doraIndicator, true);
+      // 復原：移除 CPU 地和判定，恢復正常邏輯
+      const winResult = calculateFinalScore(
+          fullHand, 
+          prev.cpuMelds, 
+          true, 
+          prev.isCpuReach, 
+          prev.doraIndicator, 
+          true
+      );
+
       if (winResult) {
         return {
           ...prev,
@@ -502,7 +538,29 @@ const App: React.FC = () => {
     if (action === 'ron') {
       const isTsumoAction = gameState.playerHand.length % 3 === 2; // 使用模數判斷是否為自摸
       const finalHand = isTsumoAction ? [...gameState.playerHand] : [...gameState.playerHand, tile];
-      const result = calculateFinalScore(finalHand, gameState.playerMelds, isTsumoAction, gameState.isPlayerReach, gameState.doraIndicator);
+      
+      // 判定天和 (Tenhou): 玩家在第一回合自摸
+      const isTenhou = isTsumoAction && gameState.playerDiscards.length === 0 && gameState.playerMelds.length === 0;
+      
+      // 判定人和 (Renhou): 玩家在對手打出第一張牌時胡牌
+      // 注意：gameState.cpuDiscards 此時已包含剛打出的這張牌，所以長度為 1
+      const isRenhou = !isTsumoAction && gameState.cpuDiscards.length === 1 && gameState.playerMelds.length === 0;
+      
+      const accumulate = isTenhou || isRenhou;
+
+      const result = calculateFinalScore(
+          finalHand, 
+          gameState.playerMelds, 
+          isTsumoAction, 
+          gameState.isPlayerReach, 
+          gameState.doraIndicator,
+          false, // isDealer
+          false, // isSkill
+          isTenhou ? '天和' : (isRenhou ? '人和' : undefined),
+          isTenhou ? 13 : (isRenhou ? 8 : undefined),
+          accumulate // accumulate flag
+      );
+
       if (result) {
         // 移除 playSound('win')
         const cpuNewScore = gameState.cpuScore - result.points;

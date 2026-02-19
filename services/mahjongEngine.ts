@@ -27,6 +27,258 @@ const getCounts = (tiles: Tile[]): Record<string, number> => {
 const isTerminalOrHonor = (t: Tile) => t.type === 'z' || t.value === 1 || t.value === 9;
 
 // ==========================================
+// 好手氣模式 (Lucky Hand)
+// ==========================================
+
+export interface LuckyHandResult {
+  hand: Tile[];
+  label: string;
+}
+
+// 從牌山中抽出指定牌型
+const extractTiles = (deck: Tile[], defs: {t: TileType, v: number}[]): Tile[] => {
+    const hand: Tile[] = [];
+    const indicesToRemove: number[] = [];
+    
+    // 找出所有需要的牌在牌山中的位置
+    for (const def of defs) {
+        const idx = deck.findIndex((t, i) => 
+            t.type === def.t && t.value === def.v && !indicesToRemove.includes(i)
+        );
+        if (idx !== -1) {
+            indicesToRemove.push(idx);
+        } else {
+            // 如果缺牌則失敗
+            return [];
+        }
+    }
+    
+    // 從後往前刪除，避免索引偏移
+    indicesToRemove.sort((a, b) => b - a);
+    for (const idx of indicesToRemove) {
+        hand.push(deck.splice(idx, 1)[0]);
+    }
+    
+    return hand;
+};
+
+const getRandomSuit = () => (['m', 'p', 's'] as TileType[])[Math.floor(Math.random() * 3)];
+
+export const generateLuckyStart = (deck: Tile[]): LuckyHandResult | null => {
+    const templates = [
+        // 1. 國士無雙 (Yakuman)
+        {
+            label: "國士無雙",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [
+                    {t:'m',v:1}, {t:'m',v:9}, {t:'p',v:1}, {t:'p',v:9}, {t:'s',v:1}, {t:'s',v:9},
+                    {t:'z',v:1}, {t:'z',v:2}, {t:'z',v:3}, {t:'z',v:4}, {t:'z',v:5}, {t:'z',v:6}, {t:'z',v:7}
+                ];
+                // 加一張重複的
+                const dup = defs[Math.floor(Math.random() * defs.length)];
+                defs.push(dup);
+                return defs;
+            }
+        },
+        // 2. 大三元 (Yakuman)
+        {
+            label: "大三元",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                // 白發中刻子
+                [5,6,7].forEach(v => { for(let i=0; i<3; i++) defs.push({t:'z',v}); });
+                // 隨機一組順子/刻子
+                const s = getRandomSuit();
+                const r = Math.floor(Math.random()*7)+1;
+                for(let i=0; i<3; i++) defs.push({t:s, v:r}); // 簡單做刻子
+                // 隨機雀頭
+                const s2 = getRandomSuit();
+                const r2 = Math.floor(Math.random()*9)+1;
+                defs.push({t:s2, v:r2}, {t:s2, v:r2});
+                return defs;
+            }
+        },
+        // 3. 字一色 (Yakuman)
+        {
+            label: "字一色",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                const honors = [1,2,3,4,5,6,7].sort(() => Math.random() - 0.5);
+                // 4組刻子
+                for(let i=0; i<4; i++) {
+                    for(let j=0; j<3; j++) defs.push({t:'z', v:honors[i]});
+                }
+                // 1組雀頭
+                defs.push({t:'z', v:honors[4]}, {t:'z', v:honors[4]});
+                return defs;
+            }
+        },
+        // 4. 清一色 (6 Fan)
+        {
+            label: "清一色",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                const s = getRandomSuit();
+                // 4組順子 + 1雀頭
+                for(let i=0; i<4; i++) {
+                    const start = Math.floor(Math.random()*7)+1;
+                    defs.push({t:s, v:start}, {t:s, v:start+1}, {t:s, v:start+2});
+                }
+                const head = Math.floor(Math.random()*9)+1;
+                defs.push({t:s, v:head}, {t:s, v:head});
+                return defs;
+            }
+        },
+        // 5. 七對子 (2 Fan)
+        {
+            label: "七對子",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                const pool: string[] = [];
+                while(pool.length < 7) {
+                   const s = (['m','p','s','z'] as TileType[])[Math.floor(Math.random()*4)];
+                   const max = s === 'z' ? 7 : 9;
+                   const v = Math.floor(Math.random()*max)+1;
+                   const key = `${s}${v}`;
+                   if (!pool.includes(key)) {
+                       pool.push(key);
+                       defs.push({t:s, v}, {t:s, v});
+                   }
+                }
+                return defs;
+            }
+        },
+        // 6. 純全帶么九 (3 Fan) - 簡化為混全或純全
+        {
+            label: "全帶么",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                // 產生包含1或9或字牌的組合
+                for(let i=0; i<4; i++) {
+                    const r = Math.random();
+                    if (r < 0.3) {
+                         // 字牌刻子
+                         const v = Math.floor(Math.random()*7)+1;
+                         defs.push({t:'z', v}, {t:'z', v}, {t:'z', v});
+                    } else if (r < 0.6) {
+                         // 123
+                         const s = getRandomSuit();
+                         defs.push({t:s, v:1}, {t:s, v:2}, {t:s, v:3});
+                    } else {
+                         // 789
+                         const s = getRandomSuit();
+                         defs.push({t:s, v:7}, {t:s, v:8}, {t:s, v:9});
+                    }
+                }
+                defs.push({t:'z', v:1}, {t:'z', v:1}); // 東風雀頭
+                return defs;
+            }
+        },
+        // 7. 三色同順 (2 Fan)
+        {
+            label: "三色同順",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                const start = Math.floor(Math.random()*7)+1;
+                // m, p, s 順子
+                ['m','p','s'].forEach(s => {
+                    defs.push({t:s as TileType, v:start}, {t:s as TileType, v:start+1}, {t:s as TileType, v:start+2});
+                });
+                // 隨機刻子
+                defs.push({t:'z', v:5}, {t:'z', v:5}, {t:'z', v:5});
+                // 隨機雀頭
+                defs.push({t:'z', v:6}, {t:'z', v:6});
+                return defs;
+            }
+        },
+        // 8. 一氣通貫 (2 Fan)
+        {
+            label: "一氣通貫",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                const s = getRandomSuit();
+                // 1-9
+                for(let v=1; v<=9; v++) defs.push({t:s, v});
+                // 隨機刻子
+                const s2 = getRandomSuit();
+                const v2 = Math.floor(Math.random()*9)+1;
+                defs.push({t:s2, v:v2}, {t:s2, v:v2}, {t:s2, v:v2});
+                // 雀頭
+                defs.push({t:'z', v:7}, {t:'z', v:7});
+                return defs;
+            }
+        },
+        // 9. 對對和 (2 Fan)
+        {
+            label: "對對和",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                for(let i=0; i<4; i++) {
+                    const s = (['m','p','s','z'] as TileType[])[Math.floor(Math.random()*4)];
+                    const max = s === 'z' ? 7 : 9;
+                    const v = Math.floor(Math.random()*max)+1;
+                    defs.push({t:s, v}, {t:s, v}, {t:s, v});
+                }
+                const s = getRandomSuit();
+                const v = Math.floor(Math.random()*9)+1;
+                defs.push({t:s, v}, {t:s, v});
+                return defs;
+            }
+        },
+        // 10. 九蓮寶燈 (Yakuman)
+        {
+            label: "九蓮寶燈",
+            gen: () => {
+                const defs: {t: TileType, v: number}[] = [];
+                const s = getRandomSuit();
+                const structure = [1,1,1,2,3,4,5,6,7,8,9,9,9];
+                structure.forEach(v => defs.push({t:s, v}));
+                // 聽任意一張，這裡隨機給一張
+                const extra = Math.floor(Math.random()*9)+1;
+                defs.push({t:s, v:extra});
+                return defs;
+            }
+        }
+    ];
+
+    // 隨機選擇一個模板
+    const template = templates[Math.floor(Math.random() * templates.length)];
+    const defs = template.gen();
+    
+    // 嘗試從牌山中提取
+    const hand14 = extractTiles(deck, defs);
+    
+    // 如果提取失敗(牌不夠)，回傳 null 走正常發牌
+    if (hand14.length !== 14) {
+        // 把提取出的牌放回(雖然正常不會發生，因為是新開局)
+        // 這裡簡化處理，直接失敗
+        return null;
+    }
+
+    // 1. 先隨機掉 1 張，變 13 張 (模擬聽牌/一向聽)
+    const dropIdx = Math.floor(Math.random() * 14);
+    hand14.splice(dropIdx, 1);
+    const hand13 = hand14;
+
+    // 2. 隨機換掉 3 張 (破壞完美聽牌，變好手氣)
+    // 確保 deck 還有牌
+    for (let i = 0; i < 3; i++) {
+        if (deck.length === 0) break;
+        // 隨機選手牌中的一張索引
+        const idx = Math.floor(Math.random() * hand13.length);
+        // 從牌山抽一張新牌
+        const newTile = deck.pop()!;
+        // 替換
+        hand13[idx] = newTile;
+    }
+
+    return {
+        hand: sortHand(hand13),
+        label: template.label
+    };
+};
+
+// ==========================================
 // 役滿與絕技生成器
 // ==========================================
 
@@ -975,20 +1227,32 @@ export const calculateFinalScore = (
   isDealer: boolean = false, 
   isSkill: boolean = false,
   forceYakuName?: string,
-  forceFan?: number
+  forceFan?: number,
+  accumulate?: boolean
 ): WinningResult | null => {
-  if (!forceYakuName && !isSkill && !checkWin(hand, melds)) return null;
+  // Check win condition unless it is a forced non-accumulating hand (God Hand)
+  // If accumulate is true (Tenhou/Renhou), we must check win.
+  const shouldCheckWin = !forceYakuName || accumulate;
+  if (shouldCheckWin && !isSkill && !checkWin(hand, melds)) return null;
   
   // 修正：門前清判定，只有暗槓不算破壞門清
   const isMenzen = melds.every(m => m.isClosed === true);
 
   let yaku: YakuResult[] = [];
   
+  // Calculate standard yaku if:
+  // 1. Not a forced hand
+  // 2. OR it is a forced hand but we want to accumulate standard yaku (e.g. Tenhou)
+  if (!forceYakuName || accumulate) {
+     yaku = evaluateYaku(hand, melds, isReach, isTsumo);
+  }
+
+  // Add forced yaku
   if (forceYakuName && forceFan) {
-      yaku.push({ name: `絕技：${forceYakuName}`, fan: forceFan });
-  } else {
-      yaku = evaluateYaku(hand, melds, isReach, isTsumo);
-      if (isSkill) yaku.push({ name: "絕技：必殺自摸", fan: 13 });
+      const prefix = accumulate ? '' : '絕技：';
+      yaku.push({ name: `${prefix}${forceYakuName}`, fan: forceFan });
+  } else if (isSkill && !accumulate) {
+      yaku.push({ name: "絕技：必殺自摸", fan: 13 });
   }
 
   if (yaku.length === 0) return null;
@@ -996,17 +1260,20 @@ export const calculateFinalScore = (
   const dora = calculateDora(hand, melds, indicator);
   
   const isYakuman = yaku.some(y => y.fan >= 13);
-  const isForcedHand = !!forceYakuName;
+  // Dora allowed if:
+  // 1. Not Yakuman (usually)
+  // 2. AND (Not forced hand OR Accumulating forced hand)
+  const allowDora = !isYakuman && (!forceYakuName || !!accumulate);
 
-  // IMPORTANT: 如果是絕技強制生成的牌型，不再疊加 Dora，避免分數超過預期的安全上限 (玩家保護機制)
-  if (!isYakuman && dora > 0 && !isForcedHand) {
+  if (allowDora && dora > 0) {
       yaku.push({ name: '懸賞牌', fan: dora });
   }
 
   const totalFan = yaku.reduce((s, y) => s + y.fan, 0);
   
   let fu = 30;
-  if (!forceYakuName) {
+  // Calculate Fu only if we did standard eval (accumulate or no force)
+  if (!forceYakuName || accumulate) {
       if (yaku.some(y => y.name === '七對子')) fu = 25;
       else if (yaku.some(y => y.name === '平和')) {
           fu = isTsumo ? 20 : 30;
@@ -1037,7 +1304,7 @@ export const calculateFinalScore = (
   }
   if (isDealer) points = Math.ceil((points * 1.5) / 100) * 100;
 
-  return { winner: 'player', yaku, doraCount: isForcedHand ? 0 : dora, fan: totalFan, fu, points, hand, melds, isTsumo };
+  return { winner: 'player', yaku, doraCount: allowDora ? dora : 0, fan: totalFan, fu, points, hand, melds, isTsumo };
 };
 
 // ==========================================

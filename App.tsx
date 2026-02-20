@@ -799,15 +799,30 @@ const App: React.FC = () => {
                 )}
 
                 {gameState.phase === GamePhase.INTRO && (
-                    <div className="text-center flex flex-col items-center justify-center h-full w-full">
-                    <div className="flex flex-col items-center">
-                        <h1 className="text-9xl font-black mb-4 text-yellow-500 italic drop-shadow-[0_0_20px_rgba(234,179,8,0.5)]">麻雀學園</h1>
-                        <h2 className="text-6xl text-white tracking-[0.5em] border-y-2 py-4 w-full text-center">卒業篇</h2>
+                    <div 
+                        className="text-center flex flex-col items-center justify-center h-full w-full bg-cover bg-center bg-no-repeat relative"
+                        style={{ backgroundImage: "url('https://raw.githubusercontent.com/BillyPan/MJA2/main/mjacademy.png')" }}
+                    >
+                    <div className="flex flex-col items-center z-10 mt-10">
+                        <h1 className="text-[10rem] font-black mb-6 text-[#FF00CC] italic drop-shadow-[0_0_30px_rgba(255,0,204,0.8)] text-stroke-heavy">麻雀學園</h1>
+                        <h2 className="text-7xl text-cyan-300 tracking-[0.5em] border-y-4 border-black py-6 w-full text-center text-stroke-medium font-bold bg-black/30 backdrop-blur-sm">卒業篇</h2>
                     </div>
-                    <div className="flex flex-col items-center mt-20">
-                        <button onClick={() => setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }))} className="bg-red-700 text-white px-12 py-4 text-3xl font-black animate-pulse shadow-[0_0_20px_rgba(185,28,28,0.5)]">INSERT COIN</button>
-                        <p className="mt-20 text-zinc-500 text-xl font-bold tracking-wider opacity-50">【bILLYpAN Gemini Vibe Coding 複刻試作 Ver 1.23】</p>
+                    <div className="flex flex-col items-center mt-8 z-10">
+                        <button onClick={() => setGameState(prev => ({ ...prev, phase: GamePhase.SELECT_OPPONENT }))} className="bg-red-700 hover:bg-red-600 text-white px-12 py-4 text-3xl font-black animate-pulse shadow-[0_0_20px_rgba(185,28,28,0.8)] border-4 border-white hover:scale-105 transition-transform">INSERT COIN</button>
+                        <p className="mt-6 text-white text-[10px] font-bold tracking-wider bg-black/60 px-3 py-1 rounded-full backdrop-blur-sm shadow-lg">【bILLYpAN Gemini Vibe Coding 複刻試作 Ver 1.23】</p>
                     </div>
+                    <style>{`
+                        .text-stroke-heavy {
+                            -webkit-text-stroke: 4px #000;
+                            paint-order: stroke fill;
+                            text-shadow: 5px 5px 0px rgba(0,0,0,0.8);
+                        }
+                        .text-stroke-medium {
+                            -webkit-text-stroke: 2px #000;
+                            paint-order: stroke fill;
+                            text-shadow: 3px 3px 0px rgba(0,0,0,0.8);
+                        }
+                    `}</style>
                     </div>
                 )}
 
